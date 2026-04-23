@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/Logo";
-import { ArrowRight, Brain, Check, Eye, Lock, ShieldCheck, Sparkles, Wallet, Zap, BarChart3 } from "lucide-react";
+import { ArrowRight, Brain, Check, Eye, Lock, ShieldCheck, Sparkles, Wallet, Zap, BarChart3, KeyRound, FileLock2, Server, Network, Database, Activity, UserCheck, FileCheck2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 
 const Landing = () => {
@@ -14,6 +14,7 @@ const Landing = () => {
           <div className="hidden md:flex items-center gap-8 text-sm text-muted-foreground">
             <a href="#produto" className="hover:text-foreground transition-smooth">Produto</a>
             <a href="#como-funciona" className="hover:text-foreground transition-smooth">Como funciona</a>
+            <a href="#seguranca" className="hover:text-foreground transition-smooth">Segurança</a>
             <a href="#planos" className="hover:text-foreground transition-smooth">Planos</a>
           </div>
           <div className="flex items-center gap-3">
