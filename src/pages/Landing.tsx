@@ -177,6 +177,119 @@ const Landing = () => {
       </section>
 
       {/* Planos */}
+      {/* Segurança */}
+      <section id="seguranca" className="py-24 border-t border-border/40">
+        <div className="container">
+          <div className="max-w-3xl mx-auto text-center">
+            <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card/50 px-4 py-1.5 text-xs text-muted-foreground backdrop-blur mb-6">
+              <ShieldCheck className="h-3.5 w-3.5 text-success" />
+              Segurança em primeiro lugar
+            </div>
+            <p className="text-sm font-medium text-primary uppercase tracking-wider">Padrão bancário de proteção</p>
+            <h2 className="mt-4 text-4xl md:text-5xl font-bold text-foreground tracking-tight">
+              Sua confiança é construída em <span className="text-gradient-primary">camadas de segurança.</span>
+            </h2>
+            <p className="mt-6 text-lg text-muted-foreground leading-relaxed">
+              Seguimos as melhores práticas do OWASP, da LGPD e do Open Finance Brasil para proteger seus dados financeiros em cada ponto da arquitetura — do navegador ao banco de dados.
+            </p>
+          </div>
+
+          <div className="mt-16 grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[
+              {
+                icon: Lock,
+                title: "Transporte e sessão protegidos",
+                desc: "100% HTTPS com TLS forçado. Cookies de sessão com Secure, HttpOnly e SameSite. Identificadores de sessão únicos e imprevisíveis, alinhados ao OWASP.",
+              },
+              {
+                icon: KeyRound,
+                title: "Autenticação forte",
+                desc: "Política de senha rigorosa, proteção contra brute force, rate limiting, logs de autenticação e MFA disponível para ações sensíveis.",
+              },
+              {
+                icon: UserCheck,
+                title: "Autorização granular",
+                desc: "Controle por usuário, conta, conexão bancária e extrato. Verificação de acesso em nível de objeto, conforme OWASP API Top 10 2023.",
+              },
+              {
+                icon: ShieldCheck,
+                title: "Defesa contra XSS e injeção",
+                desc: "Sanitização de entrada, validação no servidor, escape de saída e Content Security Policy (CSP) forte aplicada em toda a aplicação.",
+              },
+              {
+                icon: Network,
+                title: "APIs blindadas",
+                desc: "Autenticação robusta, escopos mínimos, rate limiting, versionamento, inventário de endpoints e validação estrita de payloads.",
+              },
+              {
+                icon: FileLock2,
+                title: "Criptografia de ponta a ponta",
+                desc: "Dados sensíveis criptografados em trânsito e em repouso. Segregação de segredos, rotação de chaves e zero exposição de tokens no front-end.",
+              },
+              {
+                icon: Server,
+                title: "Integridade de software",
+                desc: "Inventário de bibliotecas, atualização contínua de componentes, revisão de dependências e proteção de pipelines de CI/CD, build e deploy.",
+              },
+              {
+                icon: Database,
+                title: "Banco com privilégio mínimo",
+                desc: "Contas separadas por ambiente, queries parametrizadas, comunicação protegida e acesso ao dado restrito ao estritamente necessário.",
+              },
+              {
+                icon: Activity,
+                title: "Logs, auditoria e monitoramento",
+                desc: "Trilha completa de logins, falhas, acessos a dados sensíveis e eventos administrativos, com alertas e retenção auditável (ASVS).",
+              },
+            ].map((item, i) => (
+              <Card key={i} className="bg-gradient-card border-border p-6 hover:border-primary/40 transition-smooth group">
+                <div className="h-11 w-11 rounded-lg bg-success/10 flex items-center justify-center mb-4 group-hover:bg-success/20 transition-smooth">
+                  <item.icon className="h-5 w-5 text-success" />
+                </div>
+                <h3 className="text-base font-semibold text-foreground">{item.title}</h3>
+                <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{item.desc}</p>
+              </Card>
+            ))}
+          </div>
+
+          {/* LGPD & Privacidade */}
+          <div className="mt-12 max-w-5xl mx-auto">
+            <Card className="bg-gradient-card border-border p-8 md:p-10">
+              <div className="flex flex-col md:flex-row items-start gap-6">
+                <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                  <FileCheck2 className="h-6 w-6 text-primary" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-xl font-semibold text-foreground">Privacidade por padrão · LGPD</h3>
+                  <p className="mt-3 text-muted-foreground leading-relaxed">
+                    Coletamos apenas o necessário e informamos com clareza a finalidade, a base legal e eventuais compartilhamentos dos seus dados. A segurança é incorporada desde a concepção do serviço (privacy by design), tratamento essencial para o contexto sensível do Open Finance e da leitura de extratos bancários.
+                  </p>
+                  <div className="mt-5 grid sm:grid-cols-3 gap-3 text-xs">
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Check className="h-3.5 w-3.5 text-success shrink-0" />
+                      Conformidade com a LGPD
+                    </div>
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Check className="h-3.5 w-3.5 text-success shrink-0" />
+                      Regulado pelo Banco Central
+                    </div>
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Check className="h-3.5 w-3.5 text-success shrink-0" />
+                      Apenas leitura, jamais movimenta
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </Card>
+          </div>
+
+          <p className="mt-10 text-center text-xs text-muted-foreground max-w-2xl mx-auto">
+            Referências: OWASP Top 10 2021, OWASP API Security Top 10 2023, OWASP ASVS e LGPD (Lei nº 13.709/2018).
+          </p>
+        </div>
+      </section>
+
+      {/* Planos */}
       <section id="planos" className="py-24 bg-gradient-card border-y border-border/40">
         <div className="container">
           <div className="max-w-3xl mx-auto text-center">
