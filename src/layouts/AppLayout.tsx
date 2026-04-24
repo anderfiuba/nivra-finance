@@ -13,6 +13,12 @@ export default function AppLayout() {
 
   const handleSignOut = async () => {
     await signOut();
+    // Limpa qualquer cache local (preferências/seed) — privacidade.
+    try {
+      Object.keys(localStorage)
+        .filter((k) => k.startsWith("nivra:"))
+        .forEach((k) => localStorage.removeItem(k));
+    } catch { /* noop */ }
     toast.success("Sessão encerrada.");
     navigate("/login", { replace: true });
   };
