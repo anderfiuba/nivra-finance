@@ -1,13 +1,11 @@
 import { corsHeaders } from "../_shared/cors.ts";
 import { pluggyFetch } from "../_shared/pluggy.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 // Cria um connect_token efêmero da Pluggy.
-// Esse token é o que o frontend usa para abrir o Pluggy Connect Widget
-// (com QR no desktop ou redirect no mobile). Nunca expomos clientId/secret.
-//
-// Body opcional:
+// Requer JWT válido — o clientUserId é SEMPRE derivado do user autenticado,
+// nunca aceito do body (privacidade). Body opcional:
 //   { itemId?: string }  -> para reautenticar uma conexão existente
-//   { clientUserId?: string } -> para vincular ao usuário interno
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -15,7 +13,27 @@ Deno.serve(async (req) => {
   }
 
   try {
-    let body: { itemId?: string; clientUserId?: string } = {};
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: authHeader } } },
+    );
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError || !userData.user) {
+      return new Response(JSON.stringify({ error: "unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    let body: { itemId?: string } = {};
     if (req.method === "POST") {
       try {
         body = await req.json();
@@ -26,9 +44,8 @@ Deno.serve(async (req) => {
 
     const payload: Record<string, unknown> = {};
     if (body.itemId) payload.itemId = body.itemId;
-    if (body.clientUserId) {
-      payload.options = { clientUserId: body.clientUserId };
-    }
+    // Sempre usa o user.id autenticado como clientUserId na Pluggy.
+    payload.options = { clientUserId: userData.user.id };
 
     const res = await pluggyFetch("/connect_token", {
       method: "POST",
