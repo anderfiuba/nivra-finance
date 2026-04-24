@@ -93,7 +93,18 @@ const Conexoes = () => {
           body: { itemId },
         });
         if (error) throw error;
-        toast.success("Conta conectada com sucesso!");
+        toast.success("Conta conectada! Sincronizando dados…");
+        // Dispara sync de accounts + transactions imediatamente
+        const { error: syncErr } = await supabase.functions.invoke("pluggy-sync-data", {
+          body: { itemId },
+        });
+        if (syncErr) {
+          toast.error("Conta conectada, mas falha ao sincronizar dados.", {
+            description: syncErr.message,
+          });
+        } else {
+          toast.success("Dados sincronizados com sucesso!");
+        }
         loadItems();
       } catch (err) {
         const message = err instanceof Error ? err.message : "Falha ao registrar conexão.";
@@ -146,13 +157,15 @@ const Conexoes = () => {
   const handleSync = async (itemId: string, bank: string) => {
     setSyncingId(itemId);
     try {
-      const { error } = await supabase.functions.invoke("pluggy-sync-item", {
+      // 1. pede refresh na Pluggy
+      await supabase.functions.invoke("pluggy-sync-item", { body: { itemId } });
+      // 2. busca dados (accounts + transactions) e persiste
+      const { error } = await supabase.functions.invoke("pluggy-sync-data", {
         body: { itemId },
       });
       if (error) throw error;
-      toast.success(`Sincronização iniciada — ${bank}`);
-      // dá um tempinho para Pluggy atualizar status
-      setTimeout(loadItems, 1500);
+      toast.success(`Sincronização concluída — ${bank}`);
+      loadItems();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Falha ao sincronizar.";
       toast.error("Erro ao sincronizar", { description: message });
