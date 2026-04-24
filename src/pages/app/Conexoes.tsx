@@ -18,6 +18,7 @@ import { useDeviceType } from "@/hooks/useDeviceType";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { PluggyConnect } from "pluggy-connect-sdk";
+import { useAuth } from "@/contexts/AuthContext";
 
 // Linha de pluggy_items no Cloud + status atualizado.
 interface PluggyItemRow {
@@ -51,23 +52,21 @@ function formatRelative(iso?: string | null): string {
 
 const Conexoes = () => {
   const device = useDeviceType();
+  const { user } = useAuth();
   const [items, setItems] = useState<PluggyItemRow[] | null>(null);
   const [loadingList, setLoadingList] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
 
-  // TODO: substituir por user.id quando habilitarmos auth no app.
-  const CLIENT_USER_ID = "demo-user";
-
   const loadItems = useCallback(async () => {
+    if (!user) return;
     setLoadingList(true);
     setListError(null);
     try {
-      const { data, error } = await supabase.functions.invoke(
-        `pluggy-list-items?clientUserId=${encodeURIComponent(CLIENT_USER_ID)}`,
-        { method: "GET" },
-      );
+      const { data, error } = await supabase.functions.invoke("pluggy-list-items", {
+        method: "GET",
+      });
       if (error) throw error;
       const list: PluggyItemRow[] = Array.isArray((data as { items?: PluggyItemRow[] })?.items)
         ? (data as { items: PluggyItemRow[] }).items
@@ -80,7 +79,7 @@ const Conexoes = () => {
     } finally {
       setLoadingList(false);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     loadItems();
@@ -91,7 +90,7 @@ const Conexoes = () => {
     async (itemId: string) => {
       try {
         const { error } = await supabase.functions.invoke("pluggy-register-item", {
-          body: { itemId, clientUserId: CLIENT_USER_ID },
+          body: { itemId },
         });
         if (error) throw error;
         toast.success("Conta conectada com sucesso!");
@@ -105,10 +104,14 @@ const Conexoes = () => {
   );
 
   const startConnection = async () => {
+    if (!user) {
+      toast.error("Faça login para conectar uma conta.");
+      return;
+    }
     setConnecting(true);
     try {
       const { data, error } = await supabase.functions.invoke("pluggy-connect-token", {
-        body: { clientUserId: CLIENT_USER_ID },
+        body: {},
       });
       if (error) throw error;
       const token = (data as { accessToken?: string })?.accessToken;
