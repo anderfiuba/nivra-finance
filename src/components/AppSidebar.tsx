@@ -2,6 +2,7 @@ import { LayoutDashboard, Wallet, FileText, Plug, Settings, Crown, LogOut, ListC
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { Logo } from "@/components/Logo";
 import { useFinance } from "@/contexts/FinanceContext";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   Sidebar,
   SidebarContent,
@@ -31,7 +32,20 @@ export function AppSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { pendingList } = useFinance();
+  const { displayName, user, signOut } = useAuth();
   const pendingCount = pendingList.length;
+
+  const handleSignOut = async () => {
+    await signOut();
+    try {
+      Object.keys(localStorage)
+        .filter((k) => k.startsWith("nivra:"))
+        .forEach((k) => localStorage.removeItem(k));
+    } catch {
+      /* noop */
+    }
+    navigate("/login", { replace: true });
+  };
 
   const isActive = (path: string, end?: boolean) =>
     end ? location.pathname === path : location.pathname.startsWith(path);
@@ -86,17 +100,17 @@ export function AppSidebar() {
           <div className="mb-3 rounded-lg bg-sidebar-accent/40 p-3">
             <div className="flex items-center gap-2">
               <div className="h-8 w-8 rounded-full bg-gradient-primary flex items-center justify-center text-primary-foreground text-sm font-semibold">
-                R
+                {displayName.slice(0, 1).toUpperCase()}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-sidebar-accent-foreground truncate">Rafael Silva</p>
-                <p className="text-xs text-muted-foreground truncate">Plano Plus</p>
+                <p className="text-sm font-medium text-sidebar-accent-foreground truncate">{displayName}</p>
+                <p className="text-xs text-muted-foreground truncate">{user?.email ?? "Conta autenticada"}</p>
               </div>
             </div>
           </div>
         )}
         <SidebarMenuButton
-          onClick={() => navigate("/login")}
+          onClick={handleSignOut}
           className="text-sidebar-foreground hover:bg-sidebar-accent/50"
         >
           <LogOut className="h-4 w-4" />

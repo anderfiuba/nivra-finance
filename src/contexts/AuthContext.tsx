@@ -6,6 +6,7 @@ interface AuthContextValue {
   user: User | null;
   session: Session | null;
   loading: boolean;
+  displayName: string;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signUp: (
     email: string,
@@ -17,6 +18,14 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
+const getDisplayName = (user: User | null) => {
+  if (!user) return "";
+  const fullName = user.user_metadata?.full_name;
+  if (typeof fullName === "string" && fullName.trim().length > 0) return fullName.trim();
+  if (user.email) return user.email.split("@")[0];
+  return "Usuário";
+};
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -71,7 +80,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, session, loading, signIn, signUp, signOut, resetPassword }}
+      value={{
+        user,
+        session,
+        loading,
+        displayName: getDisplayName(user),
+        signIn,
+        signUp,
+        signOut,
+        resetPassword,
+      }}
     >
       {children}
     </AuthContext.Provider>
