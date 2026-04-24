@@ -2,8 +2,9 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { pluggyFetch } from "../_shared/pluggy.ts";
 
-// Lista os items conectados deste cliente (lendo do banco) e
-// atualiza status/last_synced_at consultando a Pluggy item-a-item.
+// Lista os items conectados do usuário autenticado.
+// O user é derivado do JWT — NUNCA aceitamos clientUserId do body/query.
+// RLS na tabela garante isolamento por usuário.
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -11,24 +12,30 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const url = new URL(req.url);
-    const clientUserId = url.searchParams.get("clientUserId");
-    if (!clientUserId) {
-      return new Response(JSON.stringify({ error: "clientUserId_required" }), {
-        status: 400,
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    // Cliente com auth do usuário — RLS aplica filtro automático.
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: authHeader } } },
+    );
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError || !userData.user) {
+      return new Response(JSON.stringify({ error: "unauthorized" }), {
+        status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
-
     const { data: rows, error: dbError } = await supabase
       .from("pluggy_items")
       .select("*")
-      .eq("client_user_id", clientUserId)
       .order("created_at", { ascending: false });
 
     if (dbError) {
@@ -40,7 +47,6 @@ Deno.serve(async (req) => {
     }
 
     // Refresh leve: para cada item, buscar status atual na Pluggy.
-    // Em produção isto seria um job; por ora fazemos inline (poucos items).
     const results = await Promise.all(
       (rows ?? []).map(async (row) => {
         try {

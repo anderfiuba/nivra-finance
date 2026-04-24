@@ -1,25 +1,48 @@
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Logo } from "@/components/Logo";
 import { Card } from "@/components/ui/card";
 import { ArrowRight, ShieldCheck } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
 
 const Login = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { signIn, user } = useAuth();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Se já estiver logado, redireciona.
+  useEffect(() => {
+    if (user) {
+      const from = (location.state as { from?: { pathname: string } } | null)?.from?.pathname ?? "/app";
+      navigate(from, { replace: true });
+    }
+  }, [user, location.state, navigate]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setTimeout(() => navigate("/app"), 600);
+    const { error } = await signIn(email, password);
+    setLoading(false);
+    if (error) {
+      const msg = error.message.includes("Invalid login credentials")
+        ? "Email ou senha incorretos."
+        : error.message;
+      toast.error("Não foi possível entrar", { description: msg });
+      return;
+    }
+    toast.success("Bem-vindo de volta!");
+    navigate("/app", { replace: true });
   };
 
   return (
     <div className="min-h-screen grid lg:grid-cols-2 bg-background">
-      {/* Left side - form */}
       <div className="flex flex-col px-6 py-10 md:px-12">
         <Link to="/"><Logo /></Link>
         <div className="flex-1 flex items-center justify-center">
@@ -30,14 +53,32 @@ const Login = () => {
             <form onSubmit={handleSubmit} className="mt-8 space-y-5">
               <div className="space-y-2">
                 <Label htmlFor="email">E-mail</Label>
-                <Input id="email" type="email" placeholder="voce@exemplo.com" required className="h-11 bg-input border-border" />
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="voce@exemplo.com"
+                  required
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="h-11 bg-input border-border"
+                />
               </div>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="password">Senha</Label>
                   <Link to="/recuperar" className="text-xs text-primary hover:underline">Esqueceu a senha?</Link>
                 </div>
-                <Input id="password" type="password" placeholder="••••••••" required className="h-11 bg-input border-border" />
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="••••••••"
+                  required
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="h-11 bg-input border-border"
+                />
               </div>
               <Button type="submit" disabled={loading} className="w-full h-11 bg-gradient-primary text-primary-foreground hover:opacity-90 shadow-elegant">
                 {loading ? "Entrando..." : <>Entrar <ArrowRight className="ml-2 h-4 w-4" /></>}
@@ -57,7 +98,6 @@ const Login = () => {
         </div>
       </div>
 
-      {/* Right side - visual */}
       <div className="hidden lg:flex relative bg-gradient-hero items-center justify-center p-12 border-l border-border">
         <div className="absolute inset-0 bg-gradient-mesh opacity-60" />
         <div className="relative max-w-md">

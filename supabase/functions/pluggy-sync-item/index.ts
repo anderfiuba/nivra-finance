@@ -1,8 +1,9 @@
 import { corsHeaders } from "../_shared/cors.ts";
 import { pluggyFetch } from "../_shared/pluggy.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
-// Dispara uma sincronização (refresh) de um item Pluggy específico.
-// Pluggy expõe POST /items/{id} para forçar atualização dos dados.
+// Dispara sincronização (refresh) de um item Pluggy.
+// Verifica que o item pertence ao usuário autenticado antes de chamar Pluggy.
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -17,10 +18,43 @@ Deno.serve(async (req) => {
   }
 
   try {
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: authHeader } } },
+    );
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError || !userData.user) {
+      return new Response(JSON.stringify({ error: "unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const body = (await req.json()) as { itemId?: string };
     if (!body.itemId) {
       return new Response(JSON.stringify({ error: "itemId_required" }), {
         status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Verifica posse: RLS retorna 0 linhas se o item não for do usuário.
+    const { data: ownItem, error: ownErr } = await supabase
+      .from("pluggy_items")
+      .select("pluggy_item_id")
+      .eq("pluggy_item_id", body.itemId)
+      .maybeSingle();
+    if (ownErr || !ownItem) {
+      return new Response(JSON.stringify({ error: "item_not_found_or_forbidden" }), {
+        status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

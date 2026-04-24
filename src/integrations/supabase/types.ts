@@ -28,6 +28,7 @@ export type Database = {
           pluggy_item_id: string
           status: string | null
           updated_at: string
+          user_id: string
         }
         Insert: {
           client_user_id: string
@@ -42,6 +43,7 @@ export type Database = {
           pluggy_item_id: string
           status?: string | null
           updated_at?: string
+          user_id: string
         }
         Update: {
           client_user_id?: string
@@ -55,6 +57,28 @@ export type Database = {
           last_synced_at?: string | null
           pluggy_item_id?: string
           status?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          full_name: string | null
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          full_name?: string | null
+          id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          full_name?: string | null
+          id?: string
           updated_at?: string
         }
         Relationships: []

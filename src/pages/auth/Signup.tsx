@@ -4,16 +4,40 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Logo } from "@/components/Logo";
 import { ArrowRight, Check, ShieldCheck } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
 
 const Signup = () => {
   const navigate = useNavigate();
+  const { signUp, user } = useAuth();
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    if (user) navigate("/app", { replace: true });
+  }, [user, navigate]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (password.length < 8) {
+      toast.error("Senha muito curta", { description: "Use pelo menos 8 caracteres." });
+      return;
+    }
     setLoading(true);
-    setTimeout(() => navigate("/app"), 600);
+    const { error } = await signUp(email, password, fullName);
+    setLoading(false);
+    if (error) {
+      const msg = error.message.includes("already registered")
+        ? "Este email já possui uma conta. Faça login."
+        : error.message;
+      toast.error("Não foi possível criar a conta", { description: msg });
+      return;
+    }
+    toast.success("Conta criada com sucesso!");
+    navigate("/app", { replace: true });
   };
 
   return (
@@ -28,15 +52,42 @@ const Signup = () => {
             <form onSubmit={handleSubmit} className="mt-8 space-y-5">
               <div className="space-y-2">
                 <Label htmlFor="name">Nome completo</Label>
-                <Input id="name" required className="h-11 bg-input border-border" placeholder="Seu nome" />
+                <Input
+                  id="name"
+                  required
+                  autoComplete="name"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  className="h-11 bg-input border-border"
+                  placeholder="Seu nome"
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="email">E-mail</Label>
-                <Input id="email" type="email" required className="h-11 bg-input border-border" placeholder="voce@exemplo.com" />
+                <Input
+                  id="email"
+                  type="email"
+                  required
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="h-11 bg-input border-border"
+                  placeholder="voce@exemplo.com"
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password">Senha</Label>
-                <Input id="password" type="password" required className="h-11 bg-input border-border" placeholder="Mínimo 8 caracteres" />
+                <Input
+                  id="password"
+                  type="password"
+                  required
+                  autoComplete="new-password"
+                  minLength={8}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="h-11 bg-input border-border"
+                  placeholder="Mínimo 8 caracteres"
+                />
               </div>
               <Button type="submit" disabled={loading} className="w-full h-11 bg-gradient-primary text-primary-foreground hover:opacity-90 shadow-elegant">
                 {loading ? "Criando conta..." : <>Criar conta gratuita <ArrowRight className="ml-2 h-4 w-4" /></>}
