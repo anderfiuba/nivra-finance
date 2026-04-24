@@ -2,8 +2,9 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ArrowDownRight, ArrowUpRight, Brain, CheckCircle2, Lightbulb, Repeat, Sparkles, TrendingUp, Wallet } from "lucide-react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { aiInsights, balanceEvolution, expensesByCategory, incomeVsExpense, transactions } from "@/data/mockData";
+import { aiInsights, balanceEvolution, incomeVsExpense } from "@/data/mockData";
 import { formatBRL } from "@/lib/format";
+import { useFinance } from "@/contexts/FinanceContext";
 
 const insightIcons: Record<string, any> = {
   alerta: TrendingUp,
@@ -19,30 +20,58 @@ const insightColors: Record<string, string> = {
   positivo: "text-success bg-success/10 border-success/30",
 };
 
+const pctChange = (curr: number, prev: number): { label: string; positive: boolean } => {
+  if (prev === 0) return { label: curr === 0 ? "0%" : "+100%", positive: curr >= 0 };
+  const diff = ((curr - prev) / Math.abs(prev)) * 100;
+  const rounded = Math.round(diff * 10) / 10;
+  const sign = rounded > 0 ? "+" : "";
+  return { label: `${sign}${rounded.toLocaleString("pt-BR")}%`, positive: rounded >= 0 };
+};
+
 const Dashboard = () => {
-  const recent = transactions.slice(0, 6);
+  const {
+    cycleTransactions,
+    cycleTotals,
+    previousCycleTotals,
+    expensesByCategoryCycle,
+    currentCycleLabel,
+  } = useFinance();
+
+  const recent = [...cycleTransactions]
+    .sort((a, b) => (a.date < b.date ? 1 : -1))
+    .slice(0, 6);
+
+  const consolidated = 145186.55; // saldo consolidado segue mockado (depende dos saldos dos bancos)
+  const trendEntradas = pctChange(cycleTotals.entradas, previousCycleTotals.entradas);
+  const trendSaidas = pctChange(cycleTotals.saidas, previousCycleTotals.saidas);
+  const trendSaldo = pctChange(cycleTotals.saldo, previousCycleTotals.saldo);
+
+  const kpis = [
+    { label: "Saldo consolidado", value: consolidated, icon: Wallet, trend: "+12,4%", positive: true },
+    { label: "Entradas no ciclo", value: cycleTotals.entradas, icon: ArrowUpRight, trend: trendEntradas.label, positive: trendEntradas.positive },
+    { label: "Saídas no ciclo", value: cycleTotals.saidas, icon: ArrowDownRight, trend: trendSaidas.label, positive: !trendSaidas.positive },
+    { label: "Saldo do ciclo", value: cycleTotals.saldo, icon: TrendingUp, trend: trendSaldo.label, positive: trendSaldo.positive },
+  ];
 
   return (
     <div className="p-6 md:p-8 space-y-6 max-w-[1600px] mx-auto">
       <div>
         <h1 className="text-2xl md:text-3xl font-bold text-foreground tracking-tight">Olá, Rafael</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Veja a visão consolidada das suas finanças em abril.</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Visão consolidada do ciclo <span className="text-foreground font-medium">{currentCycleLabel}</span>.
+        </p>
       </div>
 
-      {/* KPIs */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: "Saldo consolidado", value: 145186.55, icon: Wallet, trend: "+12,4%", positive: true },
-          { label: "Entradas no mês", value: 14900, icon: ArrowUpRight, trend: "+8,2%", positive: true },
-          { label: "Saídas no mês", value: 6450, icon: ArrowDownRight, trend: "-23,1%", positive: true },
-          { label: "Saldo do mês", value: 8450, icon: TrendingUp, trend: "+41,8%", positive: true },
-        ].map((kpi) => (
+        {kpis.map((kpi) => (
           <Card key={kpi.label} className="bg-gradient-card border-border p-5">
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-xs text-muted-foreground uppercase tracking-wider">{kpi.label}</p>
                 <p className="mt-2 text-2xl font-bold text-foreground">{formatBRL(kpi.value)}</p>
-                <p className={`mt-1 text-xs ${kpi.positive ? "text-success" : "text-destructive"}`}>{kpi.trend} vs mês anterior</p>
+                <p className={`mt-1 text-xs ${kpi.positive ? "text-success" : "text-destructive"}`}>
+                  {kpi.trend} vs ciclo anterior
+                </p>
               </div>
               <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
                 <kpi.icon className="h-4 w-4 text-primary" />
@@ -52,7 +81,6 @@ const Dashboard = () => {
         ))}
       </div>
 
-      {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="bg-gradient-card border-border p-6 lg:col-span-2">
           <div className="flex items-start justify-between mb-6">
@@ -82,29 +110,37 @@ const Dashboard = () => {
         <Card className="bg-gradient-card border-border p-6">
           <div className="mb-6">
             <h3 className="text-base font-semibold text-foreground">Despesas por categoria</h3>
-            <p className="text-xs text-muted-foreground mt-1">Distribuição em abril</p>
+            <p className="text-xs text-muted-foreground mt-1">Distribuição em {currentCycleLabel}</p>
           </div>
-          <ResponsiveContainer width="100%" height={220}>
-            <PieChart>
-              <Pie data={expensesByCategory} dataKey="value" nameKey="name" innerRadius={55} outerRadius={85} paddingAngle={2}>
-                {expensesByCategory.map((entry) => (
-                  <Cell key={entry.name} fill={entry.color} stroke="hsl(var(--card))" strokeWidth={2} />
+          {expensesByCategoryCycle.length === 0 ? (
+            <div className="h-[220px] flex items-center justify-center text-xs text-muted-foreground">
+              Sem despesas neste ciclo.
+            </div>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={220}>
+                <PieChart>
+                  <Pie data={expensesByCategoryCycle} dataKey="value" nameKey="name" innerRadius={55} outerRadius={85} paddingAngle={2}>
+                    {expensesByCategoryCycle.map((entry) => (
+                      <Cell key={entry.name} fill={entry.color} stroke="hsl(var(--card))" strokeWidth={2} />
+                    ))}
+                  </Pie>
+                  <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8 }} formatter={(v: number) => formatBRL(v)} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="mt-4 space-y-2">
+                {expensesByCategoryCycle.slice(0, 4).map((c) => (
+                  <div key={c.name} className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className="h-2.5 w-2.5 rounded-full" style={{ background: c.color }} />
+                      <span className="text-muted-foreground">{c.name}</span>
+                    </div>
+                    <span className="text-foreground font-medium">{formatBRL(c.value)}</span>
+                  </div>
                 ))}
-              </Pie>
-              <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8 }} formatter={(v: number) => formatBRL(v)} />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="mt-4 space-y-2">
-            {expensesByCategory.slice(0, 4).map((c) => (
-              <div key={c.name} className="flex items-center justify-between text-sm">
-                <div className="flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ background: c.color }} />
-                  <span className="text-muted-foreground">{c.name}</span>
-                </div>
-                <span className="text-foreground font-medium">{formatBRL(c.value)}</span>
               </div>
-            ))}
-          </div>
+            </>
+          )}
         </Card>
       </div>
 
@@ -127,7 +163,6 @@ const Dashboard = () => {
           </ResponsiveContainer>
         </Card>
 
-        {/* AI Insights */}
         <Card className="bg-gradient-card border-border p-6">
           <div className="flex items-center gap-2 mb-5">
             <div className="h-8 w-8 rounded-lg bg-gradient-primary flex items-center justify-center">
@@ -137,7 +172,7 @@ const Dashboard = () => {
               <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
                 Insights com IA <Sparkles className="h-3.5 w-3.5 text-accent" />
               </h3>
-              <p className="text-xs text-muted-foreground">Análise inteligente do seu mês</p>
+              <p className="text-xs text-muted-foreground">Análise do ciclo {currentCycleLabel}</p>
             </div>
           </div>
           <div className="space-y-3">
@@ -159,15 +194,17 @@ const Dashboard = () => {
         </Card>
       </div>
 
-      {/* Recent transactions */}
       <Card className="bg-gradient-card border-border p-6">
         <div className="flex items-center justify-between mb-5">
           <div>
             <h3 className="text-base font-semibold text-foreground">Movimentações recentes</h3>
-            <p className="text-xs text-muted-foreground mt-1">Últimas transações em todas as contas</p>
+            <p className="text-xs text-muted-foreground mt-1">Últimas transações do ciclo atual</p>
           </div>
         </div>
         <div className="space-y-2">
+          {recent.length === 0 && (
+            <p className="text-sm text-muted-foreground text-center py-6">Sem movimentações neste ciclo.</p>
+          )}
           {recent.map((t) => (
             <div key={t.id} className="flex items-center justify-between p-3 rounded-lg hover:bg-secondary/40 transition-smooth">
               <div className="flex items-center gap-3 min-w-0">
@@ -176,7 +213,7 @@ const Dashboard = () => {
                 </div>
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-foreground truncate">{t.description}</p>
-                  <p className="text-xs text-muted-foreground">{t.category} · {t.account}</p>
+                  <p className="text-xs text-muted-foreground">{t.category || "Sem categoria"} · {t.account}</p>
                 </div>
               </div>
               <p className={`text-sm font-semibold ${t.type === "entrada" ? "text-success" : "text-foreground"}`}>
