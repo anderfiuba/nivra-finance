@@ -199,6 +199,14 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   const updateCategory = useCallback(
     (id: string, category: string) => {
       patchTx(id, { category, pendingType: undefined, suggestedCategory: undefined });
+      // persiste no banco
+      supabase
+        .from("pluggy_transactions")
+        .update({ category })
+        .eq("id", id)
+        .then(({ error }) => {
+          if (error) console.error("updateCategory persist error", error);
+        });
     },
     [patchTx],
   );
