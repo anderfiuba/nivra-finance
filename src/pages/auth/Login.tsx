@@ -114,7 +114,7 @@ const Login = () => {
           <p className="mt-8 text-center text-lg text-foreground font-medium leading-relaxed">
             "Finalmente sei para onde vai meu dinheiro, sem planilhas."
           </p>
-          <p className="mt-2 text-center text-sm text-muted-foreground">— Cliente Nivra Plus</p>
+          <p className="mt-2 text-center text-sm text-muted-foreground">— Conta conectada com segurança bancária</p>
         </div>
       </div>
     </div>
