@@ -1,27 +1,13 @@
-import { Outlet, useNavigate } from "react-router-dom";
+import { Outlet } from "react-router-dom";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
-import { Bell, LogOut, Search } from "lucide-react";
+import { Bell, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
-import { toast } from "sonner";
 
 export default function AppLayout() {
-  const { signOut, user } = useAuth();
-  const navigate = useNavigate();
-
-  const handleSignOut = async () => {
-    await signOut();
-    // Limpa qualquer cache local (preferências/seed) — privacidade.
-    try {
-      Object.keys(localStorage)
-        .filter((k) => k.startsWith("nivra:"))
-        .forEach((k) => localStorage.removeItem(k));
-    } catch { /* noop */ }
-    toast.success("Sessão encerrada.");
-    navigate("/login", { replace: true });
-  };
+  const { user } = useAuth();
 
   return (
     <SidebarProvider>
@@ -46,15 +32,6 @@ export default function AppLayout() {
             )}
             <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
               <Bell className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleSignOut}
-              className="text-muted-foreground hover:text-foreground"
-              title="Sair"
-            >
-              <LogOut className="h-4 w-4" />
             </Button>
           </header>
           <main className="flex-1 overflow-auto">
