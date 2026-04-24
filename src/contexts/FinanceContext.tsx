@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import {
   CATEGORIES,
   CATEGORY_COLORS,
@@ -12,6 +12,8 @@ import {
   getPreviousCycleRange,
   isWithinCycle,
 } from "@/lib/cycle";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 
 const STORAGE_CYCLE = "nivra:cycleDay:v1";
 // Sempre usa a data atual — sem mock.
@@ -19,8 +21,20 @@ const REFERENCE_DATE = new Date();
 
 type CycleTotals = { entradas: number; saidas: number; saldo: number };
 
+export interface FinanceAccount {
+  id: string;
+  name: string;
+  type: string | null;
+  balance: number;
+  currency: string;
+}
+
 interface FinanceContextValue {
   transactions: Transaction[];
+  accounts: FinanceAccount[];
+  totalBalance: number;
+  isLoading: boolean;
+  refresh: () => Promise<void>;
   categories: readonly string[];
   // mutações
   updateCategory: (id: string, category: string) => void;
@@ -78,10 +92,90 @@ function computeTotals(list: Transaction[]): CycleTotals {
 }
 
 export function FinanceProvider({ children }: { children: React.ReactNode }) {
-  // Por enquanto começa vazio — será populado pelas transações reais
-  // sincronizadas via Pluggy (próxima etapa).
+  const { user } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const [cycleDay, setCycleDayState] = useState<number>(() => loadCycleDay());
+
+  const refresh = useCallback(async () => {
+    if (!user) {
+      setTransactions([]);
+      setAccounts([]);
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const [{ data: accData }, { data: txData }] = await Promise.all([
+        supabase
+          .from("pluggy_accounts")
+          .select("id,name,type,balance,currency")
+          .order("name", { ascending: true }),
+        supabase
+          .from("pluggy_transactions")
+          .select("id,description,amount,transaction_date,category,category_pluggy,pluggy_account_id")
+          .order("transaction_date", { ascending: false })
+          .limit(1000),
+      ]);
+
+      const accountMap = new Map<string, string>();
+      const accs: FinanceAccount[] = (accData ?? []).map((a) => {
+        accountMap.set(a.id, a.name);
+        return {
+          id: a.id,
+          name: a.name,
+          type: a.type,
+          balance: Number(a.balance ?? 0),
+          currency: a.currency,
+        };
+      });
+      setAccounts(accs);
+
+      // Mapeia para nosso formato Transaction
+      const txs: Transaction[] = (txData ?? []).map((t) => {
+        const amount = Number(t.amount);
+        return {
+          id: t.id,
+          date: t.transaction_date,
+          description: t.description,
+          category: t.category ?? t.category_pluggy ?? "",
+          account: accountMap.get(t.pluggy_account_id) ?? "Conta",
+          value: Math.abs(amount),
+          type: amount >= 0 ? "entrada" : "saida",
+          pendingType: !t.category && !t.category_pluggy ? "sem_categoria" : undefined,
+        };
+      });
+      setTransactions(txs);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user]);
+
+  // Carrega quando usuário muda
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  // Realtime: novas transactions/contas refletem na UI
+  useEffect(() => {
+    if (!user) return;
+    const channel = supabase
+      .channel(`finance-${user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "pluggy_transactions", filter: `user_id=eq.${user.id}` },
+        () => refresh(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "pluggy_accounts", filter: `user_id=eq.${user.id}` },
+        () => refresh(),
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, refresh]);
 
   // Persiste apenas a configuração de ciclo (preferência do usuário).
   const persistCycle = useCallback((day: number) => {
@@ -225,8 +319,17 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       .sort((a, b) => b.value - a.value);
   }, [cycleTransactions]);
 
+  const totalBalance = useMemo(
+    () => accounts.reduce((sum, a) => sum + (a.balance ?? 0), 0),
+    [accounts],
+  );
+
   const value: FinanceContextValue = {
     transactions,
+    accounts,
+    totalBalance,
+    isLoading,
+    refresh,
     categories: CATEGORIES,
     updateCategory,
     confirmTransfer,
