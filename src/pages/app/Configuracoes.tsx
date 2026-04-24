@@ -7,13 +7,15 @@ import { Separator } from "@/components/ui/separator";
 import { CalendarRange } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useFinance } from "@/contexts/FinanceContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { formatCycleLabel, getCycleRange } from "@/lib/cycle";
 import { toast } from "sonner";
 
-const REFERENCE_DATE = new Date(2025, 3, 23);
+const REFERENCE_DATE = new Date();
 
 const Configuracoes = () => {
   const { cycleDay, setCycleDay } = useFinance();
+  const { displayName, user } = useAuth();
   const [draftDay, setDraftDay] = useState<string>(String(cycleDay));
 
   useEffect(() => {
@@ -51,23 +53,15 @@ const Configuracoes = () => {
         <div className="grid md:grid-cols-2 gap-5">
           <div className="space-y-2">
             <Label htmlFor="name">Nome completo</Label>
-            <Input id="name" defaultValue="Rafael Silva" className="bg-input border-border" />
+            <Input id="name" value={displayName} readOnly className="bg-input border-border" />
           </div>
           <div className="space-y-2">
             <Label htmlFor="email">E-mail</Label>
-            <Input id="email" type="email" defaultValue="rafael@exemplo.com" className="bg-input border-border" />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="phone">Telefone</Label>
-            <Input id="phone" defaultValue="+55 11 99999-9999" className="bg-input border-border" />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="cpf">CPF</Label>
-            <Input id="cpf" defaultValue="123.456.789-00" className="bg-input border-border" />
+            <Input id="email" type="email" value={user?.email ?? ""} readOnly className="bg-input border-border" />
           </div>
         </div>
         <div className="mt-6">
-          <Button className="bg-gradient-primary text-primary-foreground hover:opacity-90">Salvar alterações</Button>
+          <Button variant="outline" disabled>Perfil sincronizado pela autenticação</Button>
         </div>
       </Card>
 
