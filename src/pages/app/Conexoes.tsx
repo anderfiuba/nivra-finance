@@ -26,22 +26,19 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-// Estrutura simplificada do item retornado pela Pluggy.
-// Doc: https://docs.pluggy.ai/reference/items
-interface PluggyItem {
+// Linha de pluggy_items no Cloud + status atualizado.
+interface PluggyItemRow {
   id: string;
-  status: string; // UPDATED | UPDATING | LOGIN_ERROR | WAITING_USER_INPUT | ...
-  executionStatus?: string;
-  createdAt: string;
-  updatedAt: string;
-  lastUpdatedAt?: string | null;
-  connector: {
-    id: number;
-    name: string;
-    primaryColor?: string;
-    imageUrl?: string;
-    type?: string;
-  };
+  pluggy_item_id: string;
+  connector_id: number | null;
+  connector_name: string;
+  connector_image_url: string | null;
+  connector_primary_color: string | null;
+  status: string | null;
+  execution_status: string | null;
+  last_synced_at: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 type ConnectFlow = {
@@ -68,7 +65,7 @@ function formatRelative(iso?: string | null): string {
 
 const Conexoes = () => {
   const device = useDeviceType();
-  const [items, setItems] = useState<PluggyItem[] | null>(null);
+  const [items, setItems] = useState<PluggyItemRow[] | null>(null);
   const [loadingList, setLoadingList] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<string | null>(null);
@@ -91,9 +88,8 @@ const Conexoes = () => {
         { method: "GET" },
       );
       if (error) throw error;
-      // Pluggy retorna { results: PluggyItem[], total, page, totalPages }
-      const list: PluggyItem[] = Array.isArray((data as { results?: PluggyItem[] })?.results)
-        ? (data as { results: PluggyItem[] }).results
+      const list: PluggyItemRow[] = Array.isArray((data as { items?: PluggyItemRow[] })?.items)
+        ? (data as { items: PluggyItemRow[] }).items
         : [];
       setItems(list);
     } catch (err) {
@@ -107,6 +103,41 @@ const Conexoes = () => {
 
   useEffect(() => {
     loadItems();
+  }, [loadItems]);
+
+  // Captura callback do Pluggy Connect.
+  // Quando o usuário conclui, o widget redireciona para a mesma URL com
+  // ?item_id=xxx (ou ?error=...). Detectamos e registramos no banco.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const itemId = params.get("item_id");
+    const errorMsg = params.get("error");
+    if (errorMsg) {
+      toast.error("Conexão não concluída", { description: errorMsg });
+      const url = new URL(window.location.href);
+      url.search = "";
+      window.history.replaceState({}, "", url.toString());
+      return;
+    }
+    if (itemId) {
+      (async () => {
+        try {
+          const { error } = await supabase.functions.invoke("pluggy-register-item", {
+            body: { itemId, clientUserId: CLIENT_USER_ID },
+          });
+          if (error) throw error;
+          toast.success("Conta conectada com sucesso!");
+          loadItems();
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Falha ao registrar conexão.";
+          toast.error("Erro ao registrar conta", { description: message });
+        } finally {
+          const url = new URL(window.location.href);
+          url.search = "";
+          window.history.replaceState({}, "", url.toString());
+        }
+      })();
+    }
   }, [loadItems]);
 
   const startConnection = async () => {
@@ -269,25 +300,23 @@ const Conexoes = () => {
                 className="bg-gradient-card border-border p-5 flex items-center gap-4 flex-wrap"
               >
                 <div
-                  className="h-11 w-11 rounded-lg flex items-center justify-center shrink-0 overflow-hidden"
-                  style={{ background: it.connector.primaryColor ? `#${it.connector.primaryColor}` : undefined }}
+                  className="h-11 w-11 rounded-lg flex items-center justify-center shrink-0 overflow-hidden bg-secondary/60"
+                  style={{ background: it.connector_primary_color ? `#${it.connector_primary_color}` : undefined }}
                 >
-                  {it.connector.imageUrl ? (
+                  {it.connector_image_url ? (
                     <img
-                      src={it.connector.imageUrl}
-                      alt={it.connector.name}
+                      src={it.connector_image_url}
+                      alt={it.connector_name}
                       className="h-full w-full object-cover"
                     />
                   ) : (
-                    <span className="font-semibold text-primary-foreground text-sm">
-                      {initials}
-                    </span>
+                    <span className="font-semibold text-foreground text-sm">{initials}</span>
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="text-base font-semibold text-foreground">
-                      {it.connector.name}
+                      {it.connector_name}
                     </h3>
                     {isOk && (
                       <Badge
@@ -313,17 +342,17 @@ const Conexoes = () => {
                   </div>
                   <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5">
                     <RefreshCw className="h-3 w-3" /> Última sincronização{" "}
-                    {formatRelative(it.lastUpdatedAt ?? it.updatedAt)}
+                    {formatRelative(it.last_synced_at ?? it.updated_at)}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 ml-auto">
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => handleSync(it.id, it.connector.name)}
-                    disabled={syncingId === it.id}
+                    onClick={() => handleSync(it.pluggy_item_id, it.connector_name)}
+                    disabled={syncingId === it.pluggy_item_id}
                   >
-                    {syncingId === it.id ? (
+                    {syncingId === it.pluggy_item_id ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
                     ) : (
                       <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
