@@ -164,7 +164,14 @@ Deno.serve(async (req) => {
         marketing_name: a.marketingName ?? null,
         type: a.type ?? null,
         subtype: a.subtype ?? null,
-        balance: typeof a.balance === "number" ? a.balance : 0,
+        // Para contas de cartão de crédito (CREDIT), o balance retornado pela
+        // Pluggy é o valor da fatura em aberto (positivo). Tratamos como dívida
+        // (saldo negativo) para refletir corretamente no saldo consolidado.
+        balance: (() => {
+          const raw = typeof a.balance === "number" ? a.balance : 0;
+          if ((a.type ?? "").toUpperCase() === "CREDIT") return -Math.abs(raw);
+          return raw;
+        })(),
         currency: a.currencyCode ?? "BRL",
         owner: a.owner ?? null,
         tax_number: a.taxNumber ?? null,
@@ -192,7 +199,13 @@ Deno.serve(async (req) => {
         pluggy_account_id: t.accountId,
         pluggy_item_id: body.itemId!,
         description: t.description ?? t.descriptionRaw ?? "Sem descrição",
-        amount: t.amount,
+        // Pluggy retorna `amount` sempre positivo + `type` ("DEBIT"|"CREDIT").
+        // Persistimos com sinal: positivo = entrada, negativo = saída.
+        amount: (() => {
+          const abs = Math.abs(Number(t.amount) || 0);
+          const isDebit = (t.type ?? "").toUpperCase() === "DEBIT";
+          return isDebit ? -abs : abs;
+        })(),
         currency: t.currencyCode ?? "BRL",
         transaction_date: t.date,
         category: null,
