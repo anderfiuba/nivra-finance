@@ -79,13 +79,17 @@ const Conexoes = () => {
     error: null,
   });
 
+  // TODO: substituir por user.id quando habilitarmos auth no app.
+  const CLIENT_USER_ID = "demo-user";
+
   const loadItems = useCallback(async () => {
     setLoadingList(true);
     setListError(null);
     try {
-      const { data, error } = await supabase.functions.invoke("pluggy-list-items", {
-        method: "GET",
-      });
+      const { data, error } = await supabase.functions.invoke(
+        `pluggy-list-items?clientUserId=${encodeURIComponent(CLIENT_USER_ID)}`,
+        { method: "GET" },
+      );
       if (error) throw error;
       // Pluggy retorna { results: PluggyItem[], total, page, totalPages }
       const list: PluggyItem[] = Array.isArray((data as { results?: PluggyItem[] })?.results)
@@ -109,7 +113,7 @@ const Conexoes = () => {
     setFlow({ open: true, loading: true, accessToken: null, error: null });
     try {
       const { data, error } = await supabase.functions.invoke("pluggy-connect-token", {
-        body: {},
+        body: { clientUserId: CLIENT_USER_ID },
       });
       if (error) throw error;
       const token = (data as { accessToken?: string })?.accessToken;
