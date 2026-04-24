@@ -66,6 +66,14 @@ Deno.serve(async (req) => {
     const data = await res.json();
 
     if (!res.ok) {
+      // 409 CLIENT_IS_UPDATING_BEFORE_ALLOWED_FREQUENCY: Pluggy só permite refresh
+      // a cada 1h. Não é erro real — só precisamos seguir para o sync de dados.
+      if (res.status === 409) {
+        return new Response(
+          JSON.stringify({ ok: true, skipped: true, reason: "rate_limited", details: data }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
       console.error("pluggy-sync-item error", res.status, data);
       return new Response(
         JSON.stringify({ error: "pluggy_sync_failed", status: res.status, details: data }),
