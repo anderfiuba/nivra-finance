@@ -14,7 +14,51 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      pluggy_items: {
+        Row: {
+          client_user_id: string
+          connector_id: number | null
+          connector_image_url: string | null
+          connector_name: string
+          connector_primary_color: string | null
+          created_at: string
+          execution_status: string | null
+          id: string
+          last_synced_at: string | null
+          pluggy_item_id: string
+          status: string | null
+          updated_at: string
+        }
+        Insert: {
+          client_user_id: string
+          connector_id?: number | null
+          connector_image_url?: string | null
+          connector_name: string
+          connector_primary_color?: string | null
+          created_at?: string
+          execution_status?: string | null
+          id?: string
+          last_synced_at?: string | null
+          pluggy_item_id: string
+          status?: string | null
+          updated_at?: string
+        }
+        Update: {
+          client_user_id?: string
+          connector_id?: number | null
+          connector_image_url?: string | null
+          connector_name?: string
+          connector_primary_color?: string | null
+          created_at?: string
+          execution_status?: string | null
+          id?: string
+          last_synced_at?: string | null
+          pluggy_item_id?: string
+          status?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
