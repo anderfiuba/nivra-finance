@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useFinance } from "@/contexts/FinanceContext";
 import { formatBRL, formatDate } from "@/lib/format";
-import { PendingType, Transaction } from "@/data/mockData";
+import { Transaction } from "@/data/mockData";
 import { toast } from "sonner";
 
 const Categorizacao = () => {
