@@ -1,1 +1,10 @@
 project_id = "pmnqukoifdqiiyctyoof"
+
+[functions.pluggy-connect-token]
+verify_jwt = false
+
+[functions.pluggy-list-items]
+verify_jwt = false
+
+[functions.pluggy-sync-item]
+verify_jwt = false
