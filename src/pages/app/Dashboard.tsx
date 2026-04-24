@@ -22,13 +22,14 @@ const Dashboard = () => {
     previousCycleTotals,
     expensesByCategoryCycle,
     currentCycleLabel,
+    totalBalance,
   } = useFinance();
 
   const recent = [...cycleTransactions]
     .sort((a, b) => (a.date < b.date ? 1 : -1))
     .slice(0, 6);
 
-  const consolidated = 0;
+  const consolidated = totalBalance;
   const trendEntradas = pctChange(cycleTotals.entradas, previousCycleTotals.entradas);
   const trendSaidas = pctChange(cycleTotals.saidas, previousCycleTotals.saidas);
   const trendSaldo = pctChange(cycleTotals.saldo, previousCycleTotals.saldo);
