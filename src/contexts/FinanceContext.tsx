@@ -134,15 +134,19 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       // Mapeia para nosso formato Transaction
       const txs: Transaction[] = (txData ?? []).map((t) => {
         const amount = Number(t.amount);
+        const isEntrada = amount >= 0;
         return {
           id: t.id,
           date: t.transaction_date,
           description: t.description,
-          category: t.category ?? t.category_pluggy ?? "",
+          // Apenas a categoria definida pelo usuário conta como "categorizada".
+          // A categoria sugerida pela Pluggy fica disponível como referência mas
+          // não tira o item da fila de pendências.
+          category: t.category ?? "",
           account: accountMap.get(t.pluggy_account_id) ?? "Conta",
           value: Math.abs(amount),
-          type: amount >= 0 ? "entrada" : "saida",
-          pendingType: !t.category && !t.category_pluggy ? "sem_categoria" : undefined,
+          type: isEntrada ? "entrada" : "saida",
+          pendingType: !t.category ? "sem_categoria" : undefined,
         };
       });
       setTransactions(txs);
