@@ -293,7 +293,7 @@ const Conexoes = () => {
           {items.map((it) => {
             const isOk = STATUS_OK.has(it.status);
             const isReauth = STATUS_REAUTH.has(it.status);
-            const initials = it.connector.name.substring(0, 2).toUpperCase();
+            const initials = it.connector_name.substring(0, 2).toUpperCase();
             return (
               <Card
                 key={it.id}
