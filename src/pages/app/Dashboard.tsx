@@ -1,6 +1,6 @@
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowDownRight, ArrowUpRight, Brain, TrendingUp, Wallet } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Brain, Sparkles, TrendingUp, Wallet } from "lucide-react";
 import { PieChart, ResponsiveContainer, Tooltip, Pie, Cell } from "recharts";
 import { formatBRL } from "@/lib/format";
 import { useFinance } from "@/contexts/FinanceContext";
