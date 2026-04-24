@@ -15,6 +15,8 @@ import Extrato from "./pages/app/Extrato.tsx";
 import Conexoes from "./pages/app/Conexoes.tsx";
 import Configuracoes from "./pages/app/Configuracoes.tsx";
 import Planos from "./pages/app/Planos.tsx";
+import Categorizacao from "./pages/app/Categorizacao.tsx";
+import { FinanceProvider } from "./contexts/FinanceContext";
 
 const queryClient = new QueryClient();
 
@@ -29,10 +31,18 @@ const App = () => (
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
           <Route path="/recuperar" element={<Recover />} />
-          <Route path="/app" element={<AppLayout />}>
+          <Route
+            path="/app"
+            element={
+              <FinanceProvider>
+                <AppLayout />
+              </FinanceProvider>
+            }
+          >
             <Route index element={<Dashboard />} />
             <Route path="contas" element={<Contas />} />
             <Route path="extrato" element={<Extrato />} />
+            <Route path="categorizacao" element={<Categorizacao />} />
             <Route path="conexoes" element={<Conexoes />} />
             <Route path="configuracoes" element={<Configuracoes />} />
             <Route path="planos" element={<Planos />} />
