@@ -4,8 +4,39 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
+import { CalendarRange } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { useFinance } from "@/contexts/FinanceContext";
+import { formatCycleLabel, getCycleRange } from "@/lib/cycle";
+import { toast } from "sonner";
+
+const REFERENCE_DATE = new Date(2025, 3, 23);
 
 const Configuracoes = () => {
+  const { cycleDay, setCycleDay } = useFinance();
+  const [draftDay, setDraftDay] = useState<string>(String(cycleDay));
+
+  useEffect(() => {
+    setDraftDay(String(cycleDay));
+  }, [cycleDay]);
+
+  const previewLabel = useMemo(() => {
+    const n = Number(draftDay);
+    if (!Number.isFinite(n)) return "—";
+    const safe = Math.max(1, Math.min(28, Math.floor(n)));
+    return formatCycleLabel(getCycleRange(safe, REFERENCE_DATE));
+  }, [draftDay]);
+
+  const handleSaveCycle = () => {
+    const n = Number(draftDay);
+    if (!Number.isFinite(n) || n < 1 || n > 28) {
+      toast.error("Escolha um dia entre 1 e 28.");
+      return;
+    }
+    setCycleDay(n);
+    toast.success("Ciclo financeiro atualizado");
+  };
+
   return (
     <div className="p-6 md:p-8 space-y-6 max-w-4xl mx-auto">
       <div>
@@ -37,6 +68,51 @@ const Configuracoes = () => {
         </div>
         <div className="mt-6">
           <Button className="bg-gradient-primary text-primary-foreground hover:opacity-90">Salvar alterações</Button>
+        </div>
+      </Card>
+
+      <Card className="bg-gradient-card border-border p-6">
+        <div className="flex items-center gap-3">
+          <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
+            <CalendarRange className="h-4 w-4 text-primary" />
+          </div>
+          <div>
+            <h3 className="text-base font-semibold text-foreground">Ciclo financeiro</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Defina o dia de fechamento do seu mês financeiro. Ideal para alinhar com o vencimento do cartão ou contas principais.
+            </p>
+          </div>
+        </div>
+        <Separator className="my-5" />
+        <div className="grid md:grid-cols-2 gap-5 items-end">
+          <div className="space-y-2">
+            <Label htmlFor="cycleDay">Dia de fechamento</Label>
+            <Input
+              id="cycleDay"
+              type="number"
+              min={1}
+              max={28}
+              value={draftDay}
+              onChange={(e) => setDraftDay(e.target.value)}
+              className="bg-input border-border"
+            />
+            <p className="text-xs text-muted-foreground">Escolha um dia entre 1 e 28.</p>
+          </div>
+          <div className="rounded-lg border border-border bg-secondary/40 p-4">
+            <p className="text-xs text-muted-foreground uppercase tracking-wider">Período atual</p>
+            <p className="mt-2 text-xl font-semibold text-foreground">{previewLabel}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Dashboard, comparativos e insights passam a usar este recorte.
+            </p>
+          </div>
+        </div>
+        <div className="mt-6">
+          <Button
+            className="bg-gradient-primary text-primary-foreground hover:opacity-90"
+            onClick={handleSaveCycle}
+          >
+            Salvar ciclo
+          </Button>
         </div>
       </Card>
 
