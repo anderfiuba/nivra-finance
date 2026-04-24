@@ -1,10 +1,9 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
 import {
   CATEGORIES,
   CATEGORY_COLORS,
   PendingType,
   Transaction,
-  transactions as seedTransactions,
 } from "@/data/mockData";
 import {
   CycleRange,
@@ -14,11 +13,9 @@ import {
   isWithinCycle,
 } from "@/lib/cycle";
 
-const STORAGE_TX = "nivra:transactions:v1";
 const STORAGE_CYCLE = "nivra:cycleDay:v1";
-// Referência fixa do "mês corrente" para os dados mock (abril/2025).
-// Quando vier backend real, basta trocar por `new Date()`.
-const REFERENCE_DATE = new Date(2025, 3, 23);
+// Sempre usa a data atual — sem mock.
+const REFERENCE_DATE = new Date();
 
 type CycleTotals = { entradas: number; saidas: number; saldo: number };
 
@@ -57,19 +54,6 @@ const PRIORITY: Record<PendingType, number> = {
   recorrencia_detectada: 3,
 };
 
-function loadTransactions(): Transaction[] {
-  if (typeof window === "undefined") return seedTransactions;
-  try {
-    const raw = window.localStorage.getItem(STORAGE_TX);
-    if (!raw) return seedTransactions;
-    const parsed = JSON.parse(raw) as Transaction[];
-    if (!Array.isArray(parsed) || parsed.length === 0) return seedTransactions;
-    return parsed;
-  } catch {
-    return seedTransactions;
-  }
-}
-
 function loadCycleDay(): number {
   if (typeof window === "undefined") return 1;
   try {
@@ -94,29 +78,25 @@ function computeTotals(list: Transaction[]): CycleTotals {
 }
 
 export function FinanceProvider({ children }: { children: React.ReactNode }) {
-  const [transactions, setTransactions] = useState<Transaction[]>(() => loadTransactions());
+  // Por enquanto começa vazio — será populado pelas transações reais
+  // sincronizadas via Pluggy (próxima etapa).
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [cycleDay, setCycleDayState] = useState<number>(() => loadCycleDay());
 
-  useEffect(() => {
+  // Persiste apenas a configuração de ciclo (preferência do usuário).
+  const persistCycle = useCallback((day: number) => {
     try {
-      window.localStorage.setItem(STORAGE_TX, JSON.stringify(transactions));
-    } catch {
-      /* storage cheio/bloqueado — segue silencioso */
-    }
-  }, [transactions]);
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(STORAGE_CYCLE, String(cycleDay));
+      window.localStorage.setItem(STORAGE_CYCLE, String(day));
     } catch {
       /* noop */
     }
-  }, [cycleDay]);
+  }, []);
 
   const setCycleDay = useCallback((day: number) => {
     const safe = Math.max(1, Math.min(28, Math.floor(day)));
     setCycleDayState(safe);
-  }, []);
+    persistCycle(safe);
+  }, [persistCycle]);
 
   const patchTx = useCallback((id: string, patch: Partial<Transaction>) => {
     setTransactions((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
