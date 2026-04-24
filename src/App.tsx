@@ -8,6 +8,7 @@ import NotFound from "./pages/NotFound.tsx";
 import Login from "./pages/auth/Login.tsx";
 import Signup from "./pages/auth/Signup.tsx";
 import Recover from "./pages/auth/Recover.tsx";
+import ResetPassword from "./pages/auth/ResetPassword.tsx";
 import AppLayout from "./layouts/AppLayout.tsx";
 import Dashboard from "./pages/app/Dashboard.tsx";
 import Contas from "./pages/app/Contas.tsx";
@@ -34,6 +35,7 @@ const App = () => (
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
             <Route path="/recuperar" element={<Recover />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
             <Route
               path="/app"
               element={
