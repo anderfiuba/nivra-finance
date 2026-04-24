@@ -10,7 +10,6 @@ import {
   AlertTriangle,
   Lock,
   Loader2,
-  QrCode,
   Smartphone,
   Monitor,
   Plug,
@@ -18,13 +17,7 @@ import {
 import { useDeviceType } from "@/hooks/useDeviceType";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { PluggyConnect } from "pluggy-connect-sdk";
 
 // Linha de pluggy_items no Cloud + status atualizado.
 interface PluggyItemRow {
@@ -40,13 +33,6 @@ interface PluggyItemRow {
   created_at: string;
   updated_at: string;
 }
-
-type ConnectFlow = {
-  open: boolean;
-  loading: boolean;
-  accessToken: string | null;
-  error: string | null;
-};
 
 const STATUS_OK = new Set(["UPDATED", "UPDATING", "PARTIAL_SUCCESS"]);
 const STATUS_REAUTH = new Set(["LOGIN_ERROR", "WAITING_USER_INPUT", "USER_INPUT_TIMEOUT"]);
@@ -69,12 +55,7 @@ const Conexoes = () => {
   const [loadingList, setLoadingList] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<string | null>(null);
-  const [flow, setFlow] = useState<ConnectFlow>({
-    open: false,
-    loading: false,
-    accessToken: null,
-    error: null,
-  });
+  const [connecting, setConnecting] = useState(false);
 
   // TODO: substituir por user.id quando habilitarmos auth no app.
   const CLIENT_USER_ID = "demo-user";
@@ -105,43 +86,26 @@ const Conexoes = () => {
     loadItems();
   }, [loadItems]);
 
-  // Captura callback do Pluggy Connect.
-  // Quando o usuário conclui, o widget redireciona para a mesma URL com
-  // ?item_id=xxx (ou ?error=...). Detectamos e registramos no banco.
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const itemId = params.get("item_id");
-    const errorMsg = params.get("error");
-    if (errorMsg) {
-      toast.error("Conexão não concluída", { description: errorMsg });
-      const url = new URL(window.location.href);
-      url.search = "";
-      window.history.replaceState({}, "", url.toString());
-      return;
-    }
-    if (itemId) {
-      (async () => {
-        try {
-          const { error } = await supabase.functions.invoke("pluggy-register-item", {
-            body: { itemId, clientUserId: CLIENT_USER_ID },
-          });
-          if (error) throw error;
-          toast.success("Conta conectada com sucesso!");
-          loadItems();
-        } catch (err) {
-          const message = err instanceof Error ? err.message : "Falha ao registrar conexão.";
-          toast.error("Erro ao registrar conta", { description: message });
-        } finally {
-          const url = new URL(window.location.href);
-          url.search = "";
-          window.history.replaceState({}, "", url.toString());
-        }
-      })();
-    }
-  }, [loadItems]);
+  // Registra item no nosso banco após o Pluggy Connect retornar sucesso.
+  const registerItem = useCallback(
+    async (itemId: string) => {
+      try {
+        const { error } = await supabase.functions.invoke("pluggy-register-item", {
+          body: { itemId, clientUserId: CLIENT_USER_ID },
+        });
+        if (error) throw error;
+        toast.success("Conta conectada com sucesso!");
+        loadItems();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Falha ao registrar conexão.";
+        toast.error("Erro ao registrar conta", { description: message });
+      }
+    },
+    [loadItems],
+  );
 
   const startConnection = async () => {
-    setFlow({ open: true, loading: true, accessToken: null, error: null });
+    setConnecting(true);
     try {
       const { data, error } = await supabase.functions.invoke("pluggy-connect-token", {
         body: { clientUserId: CLIENT_USER_ID },
@@ -149,18 +113,31 @@ const Conexoes = () => {
       if (error) throw error;
       const token = (data as { accessToken?: string })?.accessToken;
       if (!token) throw new Error("Token não retornado pela Pluggy.");
-      setFlow({ open: true, loading: false, accessToken: token, error: null });
+
+      // Abre o widget oficial Pluggy Connect — funciona desktop e mobile.
+      // No mobile o próprio widget faz o redirect para o app do banco.
+      // No desktop ele renderiza o QR Code e fluxo seleção de banco.
+      const pluggyConnect = new PluggyConnect({
+        connectToken: token,
+        includeSandbox: false,
+        onSuccess: async (itemData: { item: { id: string } }) => {
+          await registerItem(itemData.item.id);
+        },
+        onError: (err: { message?: string }) => {
+          toast.error("Conexão não concluída", {
+            description: err?.message ?? "Tente novamente.",
+          });
+        },
+        onClose: () => {
+          setConnecting(false);
+        },
+      });
+      pluggyConnect.init();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Falha ao iniciar conexão.";
-      setFlow({ open: true, loading: false, accessToken: null, error: message });
       toast.error("Não foi possível iniciar a conexão", { description: message });
+      setConnecting(false);
     }
-  };
-
-  const closeFlow = () => {
-    setFlow({ open: false, loading: false, accessToken: null, error: null });
-    // Após fechar, recarrega lista — usuário pode ter completado conexão.
-    loadItems();
   };
 
   const handleSync = async (itemId: string, bank: string) => {
@@ -180,17 +157,6 @@ const Conexoes = () => {
       setSyncingId(null);
     }
   };
-
-  const connectUrl = flow.accessToken
-    ? `https://connect.pluggy.ai/?connect_token=${encodeURIComponent(flow.accessToken)}`
-    : null;
-
-  // No mobile redirecionamos direto.
-  useEffect(() => {
-    if (device === "mobile" && flow.open && connectUrl && !flow.loading && !flow.error) {
-      window.location.href = connectUrl;
-    }
-  }, [device, flow.open, flow.loading, flow.error, connectUrl]);
 
   return (
     <div className="p-6 md:p-8 space-y-6 max-w-[1600px] mx-auto">
@@ -214,9 +180,15 @@ const Conexoes = () => {
           </Button>
           <Button
             onClick={startConnection}
+            disabled={connecting}
             className="bg-gradient-primary text-primary-foreground hover:opacity-90 shadow-elegant"
           >
-            <Plus className="h-4 w-4 mr-2" /> Nova conexão
+            {connecting ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Plus className="h-4 w-4 mr-2" />
+            )}
+            Nova conexão
           </Button>
         </div>
       </div>
@@ -282,8 +254,13 @@ const Conexoes = () => {
             Conecte sua primeira conta bancária via Open Finance para começar a visualizar saldos e
             transações em tempo real.
           </p>
-          <Button onClick={startConnection} className="mt-5">
-            <Plus className="h-4 w-4 mr-2" /> Conectar primeira conta
+          <Button onClick={startConnection} disabled={connecting} className="mt-5">
+            {connecting ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Plus className="h-4 w-4 mr-2" />
+            )}
+            Conectar primeira conta
           </Button>
         </Card>
       )}
@@ -372,70 +349,6 @@ const Conexoes = () => {
           })}
         </div>
       )}
-
-      <Dialog open={flow.open} onOpenChange={(open) => !open && closeFlow()}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              {device === "desktop" ? (
-                <>
-                  <QrCode className="h-5 w-5 text-primary" /> Conectar via QR Code
-                </>
-              ) : (
-                <>
-                  <Smartphone className="h-5 w-5 text-primary" /> Abrindo seu banco
-                </>
-              )}
-            </DialogTitle>
-            <DialogDescription>
-              {device === "desktop"
-                ? "Abra a câmera do celular e escaneie o QR Code abaixo. Você será levado ao app do seu banco para autorizar o compartilhamento."
-                : "Você está sendo redirecionado para autenticação no banco selecionado…"}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="py-4 flex flex-col items-center gap-4">
-            {flow.loading && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" /> Gerando token seguro…
-              </div>
-            )}
-
-            {flow.error && (
-              <div className="text-sm text-destructive flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4" /> {flow.error}
-              </div>
-            )}
-
-            {!flow.loading && !flow.error && connectUrl && device === "desktop" && (
-              <>
-                <div className="rounded-lg bg-white p-3 shadow-elegant">
-                  <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(connectUrl)}`}
-                    alt="QR Code para conectar conta bancária"
-                    width={240}
-                    height={240}
-                  />
-                </div>
-                <p className="text-xs text-muted-foreground text-center max-w-xs">
-                  O QR Code expira em alguns minutos. Não compartilhe com terceiros.
-                </p>
-                <Button variant="outline" size="sm" asChild>
-                  <a href={connectUrl} target="_blank" rel="noopener noreferrer">
-                    Abrir nesta janela
-                  </a>
-                </Button>
-              </>
-            )}
-
-            {!flow.loading && !flow.error && connectUrl && device === "mobile" && (
-              <Button asChild className="w-full">
-                <a href={connectUrl}>Continuar para o banco</a>
-              </Button>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };
