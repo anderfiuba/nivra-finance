@@ -1,4 +1,4 @@
-import { corsHeaders } from "@supabase/supabase-js/cors";
+import { corsHeaders } from "../_shared/cors.ts";
 import { pluggyFetch } from "../_shared/pluggy.ts";
 
 // Cria um connect_token efêmero da Pluggy.
