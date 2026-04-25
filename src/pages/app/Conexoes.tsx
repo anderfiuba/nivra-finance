@@ -384,13 +384,43 @@ const Conexoes = () => {
                     )}
                     Sincronizar
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-destructive hover:text-destructive"
-                  >
-                    Remover
-                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:text-destructive"
+                        disabled={removingId === it.pluggy_item_id}
+                      >
+                        {removingId === it.pluggy_item_id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                        )}
+                        Remover
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Remover {it.connector_name}?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Esta ação revoga seu consentimento na Pluggy e apaga do painel
+                          todas as contas, transações e faturas vinculadas a este banco.
+                          Os limites de gastos por categoria que você definiu serão mantidos.
+                          Para acessar novamente, será preciso conectar de novo.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction
+                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                          onClick={() => handleRemove(it.pluggy_item_id, it.connector_name)}
+                        >
+                          Remover conexão
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </div>
               </Card>
             );
