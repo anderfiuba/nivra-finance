@@ -19,6 +19,24 @@ const Extrato = () => {
     [transactions],
   );
 
+  // Categorias agrupadas por categoria pai (estrutura oficial Pluggy).
+  const groupedCategories = useMemo(() => {
+    const groups = new Map<string, { id: string; label: string }[]>();
+    for (const c of categories) {
+      const parent = c.parentDescription ?? c.descriptionTranslated ?? c.description;
+      const label = c.descriptionTranslated ?? c.description;
+      const arr = groups.get(parent) ?? [];
+      arr.push({ id: c.id, label });
+      groups.set(parent, arr);
+    }
+    return Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b));
+  }, [categories]);
+
+  const categoryFilterOptions = useMemo(
+    () => Array.from(new Set(transactions.map((t) => t.category).filter(Boolean))).sort(),
+    [transactions],
+  );
+
   const filtered = useMemo(() => {
     return transactions.filter((t) => {
       if (search && !t.description.toLowerCase().includes(search.toLowerCase())) return false;
@@ -28,8 +46,8 @@ const Extrato = () => {
     });
   }, [transactions, search, account, category]);
 
-  const handleChangeCategory = (id: string, value: string) => {
-    updateCategory(id, value);
+  const handleChangeCategory = (id: string, label: string) => {
+    updateCategory(id, label);
     toast.success("Categoria atualizada");
   };
 
@@ -77,7 +95,7 @@ const Extrato = () => {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todas categorias</SelectItem>
-              {categories.map((c) => (
+              {categoryFilterOptions.map((c) => (
                 <SelectItem key={c} value={c}>
                   {c}
                 </SelectItem>
@@ -126,12 +144,21 @@ const Extrato = () => {
                     >
                       <SelectValue placeholder="Sem categoria" />
                     </SelectTrigger>
-                    <SelectContent>
-                      {categories.map((c) => (
-                        <SelectItem key={c} value={c}>
-                          {c}
-                        </SelectItem>
-                      ))}
+                    <SelectContent className="max-h-80">
+                      {groupedCategories.length === 0 ? (
+                        <SelectItem value="__none" disabled>Carregando categorias…</SelectItem>
+                      ) : (
+                        groupedCategories.map(([parent, items]) => (
+                          <div key={parent}>
+                            <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                              {parent}
+                            </div>
+                            {items.map((it) => (
+                              <SelectItem key={it.id} value={it.label}>{it.label}</SelectItem>
+                            ))}
+                          </div>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
                   <span className="text-xs text-muted-foreground">{t.account}</span>
@@ -146,6 +173,11 @@ const Extrato = () => {
                   {t.value > 0 ? "+" : ""}
                   {formatBRL(t.value)}
                 </p>
+                {t.originalCurrency && t.originalAmount !== undefined && (
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    {Math.abs(t.originalAmount).toFixed(2)} {t.originalCurrency}
+                  </p>
+                )}
                 <p className="text-xs text-muted-foreground mt-0.5">{formatDate(t.date)}</p>
               </div>
             </div>

@@ -1,12 +1,16 @@
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatBRL } from "@/lib/format";
-import { Plus, Wallet, Loader2 } from "lucide-react";
+import { Plus, Wallet, Loader2, CreditCard } from "lucide-react";
 import { useFinance } from "@/contexts/FinanceContext";
 import { Link } from "react-router-dom";
 
 const Contas = () => {
   const { accounts, totalBalance, isLoading } = useFinance();
+
+  const creditCards = accounts.filter((a) => (a.type ?? "").toUpperCase() === "CREDIT");
+  const bankAccounts = accounts.filter((a) => (a.type ?? "").toUpperCase() !== "CREDIT");
+
   return (
     <div className="p-6 md:p-8 space-y-6 max-w-[1600px] mx-auto">
       <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -23,7 +27,7 @@ const Contas = () => {
         <p className="text-xs text-muted-foreground uppercase tracking-wider">Saldo total consolidado</p>
         <p className="mt-2 text-4xl font-bold text-foreground">{formatBRL(totalBalance)}</p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Soma dos saldos de todas as contas conectadas via Open Finance.
+          Soma dos saldos bancários menos o total das faturas de cartão em aberto.
         </p>
       </Card>
 
@@ -46,22 +50,76 @@ const Contas = () => {
           </Button>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {accounts.map((acc) => (
-            <Card key={acc.id} className="bg-gradient-card border-border p-5">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <Wallet className="h-5 w-5 text-primary" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-sm font-semibold text-foreground truncate">{acc.name}</h3>
-                  <p className="text-xs text-muted-foreground">{acc.type ?? "Conta"}</p>
-                </div>
+        <>
+          {creditCards.length > 0 && (
+            <Card className="bg-gradient-card border-border p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <CreditCard className="h-4 w-4 text-primary" />
+                <h2 className="text-sm font-semibold text-foreground">Cartões de Crédito</h2>
+                <span className="text-xs text-muted-foreground">{creditCards.length}</span>
               </div>
-              <p className="mt-4 text-2xl font-bold text-foreground">{formatBRL(acc.balance)}</p>
+              <div className="divide-y divide-border">
+                {creditCards.map((acc) => {
+                  const used = Math.abs(acc.balance ?? 0);
+                  const limit = acc.creditLimit ?? null;
+                  const pct = limit && limit > 0 ? Math.min(100, (used / limit) * 100) : null;
+                  return (
+                    <div key={acc.id} className="py-3 flex items-center gap-4">
+                      <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                        <CreditCard className="h-5 w-5 text-primary" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-foreground truncate">{acc.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {acc.cardBrand ?? "Cartão"}
+                          {acc.cardNumberLast4 ? ` · final ${acc.cardNumberLast4}` : ""}
+                          {acc.balanceDueDate ? ` · vence ${new Date(acc.balanceDueDate).toLocaleDateString("pt-BR")}` : ""}
+                        </p>
+                      </div>
+                      <div className="text-right shrink-0 min-w-[180px]">
+                        <p className="text-sm font-bold text-destructive">{formatBRL(used)}</p>
+                        {pct !== null && (
+                          <>
+                            <div className="mt-1 h-1.5 w-full bg-secondary rounded-full overflow-hidden">
+                              <div className="h-full bg-destructive" style={{ width: `${pct}%` }} />
+                            </div>
+                            <p className="text-[10px] text-muted-foreground mt-1">
+                              {pct.toFixed(1)}% · Limite: {formatBRL(limit!)}
+                            </p>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </Card>
-          ))}
-        </div>
+          )}
+
+          {bankAccounts.length > 0 && (
+            <Card className="bg-gradient-card border-border p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <Wallet className="h-4 w-4 text-primary" />
+                <h2 className="text-sm font-semibold text-foreground">Contas Bancárias</h2>
+                <span className="text-xs text-muted-foreground">{bankAccounts.length}</span>
+              </div>
+              <div className="divide-y divide-border">
+                {bankAccounts.map((acc) => (
+                  <div key={acc.id} className="py-3 flex items-center gap-4">
+                    <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                      <Wallet className="h-5 w-5 text-primary" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-foreground truncate">{acc.name}</p>
+                      <p className="text-xs text-muted-foreground">{acc.subtype ?? acc.type ?? "Conta"}</p>
+                    </div>
+                    <p className="text-sm font-bold text-foreground shrink-0">{formatBRL(acc.balance)}</p>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+        </>
       )}
     </div>
   );

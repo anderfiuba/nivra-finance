@@ -16,6 +16,10 @@ export interface Transaction {
   confidence?: number;
   suggestedCategory?: string;
   recurrenceGroup?: string;
+  /** Valor original quando a transação foi feita em moeda estrangeira. */
+  originalAmount?: number;
+  /** Código da moeda original (ex.: USD) quando difere da moeda da conta. */
+  originalCurrency?: string;
 }
 
 export const CATEGORIES = [
