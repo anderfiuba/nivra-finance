@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,19 @@ const Categorizacao = () => {
   } = useFinance();
 
   const [draftCategory, setDraftCategory] = useState<Record<string, string>>({});
+
+  // Agrupa categorias da Pluggy por categoria pai.
+  const groupedCategories = useMemo(() => {
+    const groups = new Map<string, { id: string; label: string }[]>();
+    for (const c of categories) {
+      const parent = c.parentDescription ?? c.descriptionTranslated ?? c.description;
+      const label = c.descriptionTranslated ?? c.description;
+      const arr = groups.get(parent) ?? [];
+      arr.push({ id: c.id, label });
+      groups.set(parent, arr);
+    }
+    return Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b));
+  }, [categories]);
 
   // Mantemos apenas itens "sem categoria" na fila de pendências.
   const visible = pendingList.filter((t) => t.pendingType === "sem_categoria");
@@ -128,12 +141,21 @@ const Categorizacao = () => {
                       <SelectTrigger className="w-44 h-9 bg-input border-border" aria-label="Definir categoria">
                         <SelectValue placeholder="Definir categoria" />
                       </SelectTrigger>
-                      <SelectContent>
-                        {categories.map((c) => (
-                          <SelectItem key={c} value={c}>
-                            {c}
-                          </SelectItem>
-                        ))}
+                      <SelectContent className="max-h-80">
+                        {groupedCategories.length === 0 ? (
+                          <SelectItem value="__none" disabled>Carregando…</SelectItem>
+                        ) : (
+                          groupedCategories.map(([parent, items]) => (
+                            <div key={parent}>
+                              <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                {parent}
+                              </div>
+                              {items.map((it) => (
+                                <SelectItem key={it.id} value={it.label}>{it.label}</SelectItem>
+                              ))}
+                            </div>
+                          ))
+                        )}
                       </SelectContent>
                     </Select>
                     <Button
