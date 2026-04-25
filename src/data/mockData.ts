@@ -22,6 +22,18 @@ export interface Transaction {
   originalCurrency?: string;
   /** ID Pluggy da conta (não confundir com o UUID interno). */
   pluggyAccountId?: string;
+  /** Status na Pluggy (POSTED | PENDING). */
+  status?: string | null;
+  /** Método/operação (PIX, TED, BOLETO…). */
+  operationType?: string | null;
+  /** Nome do estabelecimento, se conhecido. */
+  merchantName?: string | null;
+  /** Parcela atual (cartão). */
+  installmentNumber?: number | null;
+  /** Total de parcelas (cartão). */
+  totalInstallments?: number | null;
+  /** Últimos 4 dígitos do cartão / id curto da conta para exibir na linha. */
+  accountTag?: string | null;
 }
 
 export const CATEGORIES = [
