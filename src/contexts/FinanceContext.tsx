@@ -192,6 +192,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   const [bills, setBills] = useState<FinanceBill[]>([]);
   const [categoryBudgets, setCategoryBudgets] = useState<CategoryBudget[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [cardCycleSettings, setCardCycleSettings] = useState<Record<string, CardCycleSetting>>({});
   const [cycleDay, setCycleDayState] = useState<number>(() => loadCycleDay());
   const alertedBudgetsRef = React.useRef<Set<string>>(new Set());
 
@@ -202,6 +203,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       setItems([]);
       setBills([]);
       setCategoryBudgets([]);
+      setCardCycleSettings({});
       return;
     }
     setIsLoading(true);
@@ -213,6 +215,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         { data: billData },
         { data: budgetData },
         { data: itemData },
+        { data: cycleData },
       ] = await Promise.all([
         supabase
           .from("pluggy_accounts")
@@ -248,6 +251,9 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
             "id,pluggy_item_id,connector_name,connector_image_url,connector_primary_color,status,last_synced_at,updated_at",
           )
           .order("connector_name", { ascending: true }),
+        supabase
+          .from("card_cycle_settings")
+          .select("pluggy_account_id,closing_day,due_day"),
       ]);
 
       // Index pluggy_items por pluggy_item_id pra resolver logo/cor/sync.
@@ -454,6 +460,16 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           alertThreshold: Number(b.alert_threshold),
         })),
       );
+
+      const cycleMap: Record<string, CardCycleSetting> = {};
+      for (const c of (cycleData ?? [])) {
+        cycleMap[c.pluggy_account_id] = {
+          pluggyAccountId: c.pluggy_account_id,
+          closingDay: c.closing_day !== null ? Number(c.closing_day) : null,
+          dueDay: c.due_day !== null ? Number(c.due_day) : null,
+        };
+      }
+      setCardCycleSettings(cycleMap);
     } finally {
       setIsLoading(false);
     }
