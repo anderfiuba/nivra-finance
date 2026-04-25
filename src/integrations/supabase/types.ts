@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      category_budgets: {
+        Row: {
+          alert_threshold: number
+          category_label: string
+          created_at: string
+          id: string
+          monthly_limit: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          alert_threshold?: number
+          category_label: string
+          created_at?: string
+          id?: string
+          monthly_limit: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          alert_threshold?: number
+          category_label?: string
+          created_at?: string
+          id?: string
+          monthly_limit?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       pluggy_accounts: {
         Row: {
           automatically_invested_balance: number | null

@@ -1,4 +1,4 @@
-import { LayoutDashboard, Wallet, FileText, Plug, Settings, Crown, LogOut, ListChecks } from "lucide-react";
+import { LayoutDashboard, Wallet, FileText, Plug, Settings, Crown, LogOut, Tags, CreditCard } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { Logo } from "@/components/Logo";
 import { useFinance } from "@/contexts/FinanceContext";
@@ -20,7 +20,8 @@ const items = [
   { title: "Dashboard", url: "/app", icon: LayoutDashboard, end: true },
   { title: "Contas", url: "/app/contas", icon: Wallet },
   { title: "Extrato Unificado", url: "/app/extrato", icon: FileText },
-  { title: "Categorização Pendente", url: "/app/categorizacao", icon: ListChecks, badgeKey: "pending" as const },
+  { title: "Faturas", url: "/app/faturas", icon: CreditCard },
+  { title: "Categorias", url: "/app/categorizacao", icon: Tags, badgeKey: "pending" as const },
   { title: "Conexões Open Finance", url: "/app/conexoes", icon: Plug },
   { title: "Configurações", url: "/app/configuracoes", icon: Settings },
   { title: "Planos", url: "/app/planos", icon: Crown },
