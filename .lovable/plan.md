@@ -1,64 +1,151 @@
-## Diagnóstico (com base na doc oficial Pluggy + dados reais no DB)
+## 1. Bug de exibição no Extrato (sinal +/−)
 
-Inspecionei `pluggy_transactions`, `pluggy_categories` e a documentação oficial (`/reference/transactions`). Os problemas que você está vendo são lógica de leitura no frontend, não dados perdidos:
+**Problema:** em `src/pages/app/Extrato.tsx` (linha 178) o template renderiza `{t.value > 0 ? "+" : ""}`. Como em `FinanceContext.tsx` o `value` é armazenado como `Math.abs(amountConverted)`, **saídas também aparecem com `+`**.
 
-1. **Tudo aparece como entrada** — `FinanceContext.tsx` calcula `isEntrada = signedAmount >= 0` baseado em inverter o sinal só pra cartão. Mas a doc da Pluggy é explícita: o **campo `type`** (`DEBIT` = outflow, `CREDIT` = inflow) é a fonte de verdade, válido tanto para conta bancária quanto para cartão. O `amount` por si só tem semântica diferente em cada tipo de conta. Os dados no DB já vêm com `type` correto (`DEBIT` para gastos, `CREDIT` para entrada/pagamento de fatura).
+**Correção:**
+- Renderizar prefixo conforme `t.type`: `+` para `entrada`, `−` para `saida`.
+- Aplicar a cor `text-destructive` (vermelho) em saídas, `text-success` (verde) em entradas — alinhado ao já praticado em `Categorizacao.tsx`.
+- Mesmo ajuste em qualquer outro local que use `t.value > 0 ? "+" : ""` (Dashboard "Movimentações recentes", se existir).
 
-2. **Categorias todas vazias** — A Pluggy já entrega categoria nativa em `category_pluggy` (ex: `"Transfers"`, `"Digital services"`, `"Electronics"`). O FinanceContext só considera `category` (override manual) e ignora `category_pluggy` na hora de exibir; ele usa só pra decidir "tem ou não". Resultado: mesmo com categoria da Pluggy preenchida, a UI mostra "Sem categoria".
+---
 
-3. **Categorias em inglês** — O catálogo `pluggy_categories` (130 linhas) tem `description_translated` em PT-BR (`"Transferências"`, `"Serviços digitais"`, `"Eletrônicos"`), mas o frontend exibe `category_pluggy` cru (em inglês).
+## 2. Sidebar — Renomear "Categorização Pendente" → "Categorias"
 
-4. **Pendências de categorização** — Como a regra atual só considera `pendingType: "sem_categoria"` quando AMBOS estão vazios, isso já está alinhado com o que você quer. Após o fix, transações com categoria nativa Pluggy saem da fila automaticamente.
+**Arquivo:** `src/components/AppSidebar.tsx`
+- Alterar título do item de menu de **"Categorização Pendente"** para **"Categorias"**.
+- Manter rota `/app/categorizacao` (sem quebrar bookmarks); o badge numérico continua exibindo a contagem de pendências (`sem_categoria`).
+- Ícone: trocar `ListChecks` por `Tags` (Lucide) — mais condizente com gestão de categorias.
 
-## Plano de Implementação
+---
 
-### 1. `src/contexts/FinanceContext.tsx` — adotar regras oficiais Pluggy
+## 3. Nova funcionalidade: Orçamentos mensais por categoria
 
-**Sinal (entrada vs saída):**
-- Substituir a heurística de inversão por cartão pelo campo oficial `type`:
-  - `t.type === "CREDIT"` → `entrada`
-  - `t.type === "DEBIT"` → `saida`
-- Fallback (raros casos sem `type`): usar `amount > 0` para conta BANK; cartão CREDIT inverte.
-- Adicionar `type` ao `select()` (já está, confirmar).
+### Banco de dados (nova migration)
 
-**Valor exibido (BRL):**
-- Para somatórios e exibição em BRL, priorizar `amount_in_account_currency` quando `currency !== account_currency`, conforme doc (`amountInAccountCurrency`). Senão, usar `amount`.
-- O valor armazenado em `value: Math.abs(...)` continua sendo o módulo, e `type` controla o sinal visual.
+Tabela **`category_budgets`**:
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `id` | uuid PK | `gen_random_uuid()` |
+| `user_id` | uuid NOT NULL | RLS por `auth.uid()` |
+| `category_label` | text NOT NULL | Rótulo PT-BR (ex.: "Mercado") — mesma string usada em `transactions.category` (efetiva) |
+| `monthly_limit` | numeric NOT NULL | Em BRL |
+| `alert_threshold` | numeric NOT NULL DEFAULT 0.8 | 0–1, dispara aviso (ex.: 80%) |
+| `created_at`, `updated_at` | timestamptz | trigger `update_updated_at_column` |
 
-**Categoria efetiva (cruzamento com catálogo PT-BR):**
-- Construir um Map `categoryByName: Map<string, PluggyCategoryNode>` indexado por `description` (inglês, como vem em `category_pluggy`) e por `id` (para `category_id`).
-- Categoria efetiva da transação:
-  1. Se `t.category` (override manual) preenchido → usa.
-  2. Senão se `t.category_id` ou `t.category_pluggy` resolvem no catálogo → usa `description_translated` (PT-BR).
-  3. Senão → `""` e marca `pendingType: "sem_categoria"`.
-- Resultado: 95% das transações ficam categorizadas automaticamente em PT-BR; só transações realmente sem categoria nativa vão pra fila.
+- **Índice único** `(user_id, category_label)`.
+- **RLS:** 4 políticas (SELECT/INSERT/UPDATE/DELETE) com `auth.uid() = user_id` — mesmo padrão das demais tabelas Pluggy.
 
-**Exclusão de transferências do gráfico de despesas:**
-- Já tem regex; trocar pra checar contra o `parent_description` (`"Transferências"`) do catálogo, não substring solta.
+### UI — Página `Categorias` (refator de `src/pages/app/Categorizacao.tsx`)
 
-### 2. `src/pages/app/Extrato.tsx` — Select de categoria correto
+Estrutura em **abas (Tabs do shadcn)**:
 
-- O `Select` atual usa `value={t.category || ""}` e options com `value={it.label}`. Quando a categoria efetiva vem do catálogo Pluggy (não do override), o select fica vazio mesmo a transação tendo categoria.
-- Trocar pra usar a **categoria efetiva calculada** (já vem resolvida do contexto). Quando o usuário seleciona uma categoria do dropdown, gravamos no `category` (override) — comportamento que já existe.
-- Garantir que `groupedCategories` use `parent_description` traduzida quando disponível (a Pluggy entrega `parentDescription` em inglês; precisamos buscar a tradução pelo `parent_id` no próprio catálogo).
+**Aba 1 — "Pendentes"** (mantém UX atual)
+- Lista somente `pendingType === "sem_categoria"`.
+- Já é o comportamento atual; nenhuma mudança funcional.
 
-### 3. `src/pages/app/Categorizacao.tsx`
-- Sem mudança de regra (já filtra `sem_categoria`). Após o fix do contexto, a lista vai diminuir drasticamente porque transações com `category_pluggy` saem da fila.
-- Aplicar a mesma melhoria de `groupedCategories` com parent traduzido.
+**Aba 2 — "Orçamentos"** (NOVA)
+- Cabeçalho com referência ao ciclo atual (`currentCycleLabel` do FinanceContext).
+- **Lista de categorias gastas no ciclo** (derivada de `expensesByCategoryCycle`) + categorias com orçamento definido (mesmo sem gasto). Cada linha:
+  - Nome da categoria + cor.
+  - **Barra de progresso** (`<Progress />` shadcn) com `gasto / limite`.
+  - Texto: `R$ 320 de R$ 800 (40%)`.
+  - **Estado visual:**
+    - `< alert_threshold` → barra primária (azul).
+    - `≥ alert_threshold && < 100%` → barra `warning` (amarelo) + ícone `AlertTriangle` + tooltip "Próximo do limite".
+    - `≥ 100%` → barra `destructive` (vermelho) + badge "Estourou".
+  - Botão **"Editar"** abre `Dialog` com inputs: limite mensal (R$) e threshold (slider 50–95%).
+  - Categorias **sem orçamento** mostram apenas o gasto + botão "Definir limite".
+- Botão "Adicionar orçamento" → `Dialog` com `Select` populado pelas categorias do catálogo Pluggy (mesma estrutura agrupada já usada no Extrato).
 
-### 4. `supabase/functions/pluggy-sync-data/index.ts` — sem mudanças funcionais
-- O backend já está correto e fiel à doc: persiste `amount` cru, `type`, `category_pluggy`, `category_id`, `amount_in_account_currency`. Não toca.
+**Aba 3 — "Catálogo"** (opcional, valor baixo) — **NÃO implementar agora**, anotado como possível extensão futura.
 
-### 5. Não mexer em
-- Schema do banco (já tem todas as colunas necessárias).
-- `pluggy-sync-categories` (catálogo já populado, 130 linhas).
-- Lógica de saldo consolidado (já está correta: cartão entra como dívida).
+### Cálculo dos avisos (no `FinanceContext`)
+- Adicionar selectors:
+  - `categoryBudgets: CategoryBudget[]` carregada via `supabase.from("category_budgets").select(...)`.
+  - `budgetProgress: { categoryLabel; spent; limit; threshold; status: "ok"|"alert"|"over" }[]`, derivado de `expensesByCategoryCycle` × `categoryBudgets`.
+  - `budgetAlerts: number` — contagem de orçamentos em `alert`/`over` para badge na sidebar (item "Categorias" passa a contar **pendências + alertas**, ou seguimos só pendências — decisão padrão: **pendências apenas** para evitar ruído; alertas ficam visíveis dentro da página).
+- Mutações: `upsertBudget(label, limit, threshold)`, `deleteBudget(label)` — ambas persistem em `category_budgets`.
+- Realtime: assinar `category_budgets` (mesmo padrão das demais tabelas).
 
-## Resultado esperado
+### Avisos
+- **Toast (Sonner)** já no `useEffect` quando `budgetProgress` muda de status para `alert` ou `over` durante a sessão (com guard `useRef` para não disparar duplicado).
+- Exemplo: `toast.warning("Você atingiu 85% do orçamento de Mercado.")`.
 
-Após o deploy, **sem precisar re-sincronizar**:
-- Extrato mostra ↓ vermelho para gastos (DEBIT) e ↑ verde para entradas (CREDIT), tanto em conta quanto em cartão.
-- Categorias aparecem em PT-BR vindas da Pluggy ("Transferências", "Serviços digitais", "Eletrônicos", "Impostos sobre operações financeiras").
-- Fila de "Categorização Pendente" cai pra perto de zero — só transações sem categoria nativa.
-- Compras internacionais (USD) somam pelo valor convertido em BRL (`amountInAccountCurrency`) no dashboard, mas exibem o original ao lado.
-- Override manual continua funcionando: usuário pode trocar a categoria sugerida pela Pluggy a qualquer momento.
+---
+
+## 4. Nova aba: Faturas (`/app/faturas`)
+
+### Dados — todos vêm da Pluggy (já persistidos)
+- **`pluggy_bills`** — já existe. Contém `due_date`, `total_amount`, `minimum_payment_amount`, `paid`, `pluggy_account_id`. **Sem mock.**
+- **`pluggy_transactions`** com `pluggy_account_id` da conta `CREDIT` + `installment_number` / `total_installments` para distinguir parcelado de avulso.
+- **`pluggy_accounts`** (`type = CREDIT`) para nome do cartão, brand, last4, `available_credit_limit`, `credit_limit`, `balance_due_date`.
+
+> Observação importante: a tabela `pluggy_bills` **já é populada** pela função `pluggy-sync-data` (linhas 391–413). Se durante testes ela vier vazia para algum conector, é porque a Pluggy não expõe `/bills` para todos — nesse caso, derivamos a fatura agrupando transações `CREDIT` por mês de competência (fallback descrito abaixo).
+
+### Roteamento
+- Adicionar rota `/app/faturas` em `src/App.tsx`.
+- Adicionar item `{ title: "Faturas", url: "/app/faturas", icon: CreditCard }` em `AppSidebar.tsx`, posicionado logo após "Contas".
+
+### Página `src/pages/app/Faturas.tsx`
+
+**Cabeçalho:** título + dropdown de seleção de cartão (popular com contas `type = CREDIT`).
+
+**Cards-resumo (topo):**
+- Total da fatura aberta atual (somatório `pluggy_bills` mais recente do cartão selecionado, ou `account.balance` se sem bill).
+- Limite disponível / total (`availableCreditLimit / creditLimit`) com barra.
+- Vencimento (`balanceDueDate`) com badge colorido por proximidade (verde > 7d, amarelo 3–7d, vermelho ≤ 3d ou vencida).
+
+**Tabela mensal (mês a mês):**
+- Lista de bills ordenadas por `due_date` desc.
+- Cada linha: período/competência, valor total, mínimo, vencimento, status (Pago / Aberta / Vencida — derivado de `paid` + `due_date < hoje`).
+- Click em uma fatura abre **detalhamento** (acordeão ou rota `/app/faturas/:billId`):
+
+**Detalhamento da fatura:**
+- Duas seções (Tabs internas):
+  - **"Compras avulsas"** — transações da fatura sem `installment_number` ou com `total_installments == 1`.
+  - **"Parcelas"** — transações com `total_installments > 1`. Mostra `2/10`, valor da parcela, e merchant.
+- Cada item: descrição, merchant, categoria efetiva (mesma resolução já feita no Extrato), valor (sinal correto: gasto = vermelho).
+- **Filtro de fatura ↔ transações:** por padrão a Pluggy não associa `bill_id` à transação. Estratégia: agrupar transações da conta CREDIT pela janela `[balance_close_date_anterior, balance_close_date_atual]`. Se não houver datas, fallback para mês de competência (`due_date.month - 1`).
+
+**Sem dados mock.** Todas as somas vêm de `pluggy_transactions` + `pluggy_bills`. Se o cartão não tiver dados ainda, exibir empty state "Sincronize esta conta para visualizar faturas".
+
+### FinanceContext — exposição de dados
+- Adicionar:
+  - `bills: FinanceBill[]` carregado de `pluggy_bills`.
+  - Selector `getBillsByAccount(accountId)`.
+  - Selector `getTransactionsForBill(bill)` que aplica a janela de datas descrita acima.
+- Realtime: assinar `pluggy_bills`.
+
+---
+
+## 5. Garantia de "dados reais" (sem mocks)
+
+- Todas as novas leituras (`bills`, `category_budgets`, transações de cartão) usam `supabase.from(...)` — zero referência ao `mockData`.
+- A função `pluggy-sync-data` já persiste `bills` e accounts CREDIT com `creditData` completo. Não requer alteração.
+- Empty states explícitos em cada nova tela quando não houver dados, com CTA "Ir para Conexões → Sincronizar".
+
+---
+
+## 6. Resumo de arquivos
+
+**Novos**
+- `supabase/migrations/<timestamp>_category_budgets.sql` — tabela + RLS + trigger updated_at.
+- `src/pages/app/Faturas.tsx`
+- (opcional) `src/components/budgets/BudgetDialog.tsx`, `src/components/faturas/BillDetail.tsx` para manter componentes enxutos.
+
+**Editados**
+- `src/pages/app/Extrato.tsx` — corrigir sinal `+/−` e cor de saídas.
+- `src/components/AppSidebar.tsx` — renomear item, novo ícone, nova entrada "Faturas".
+- `src/App.tsx` — registrar rota `/app/faturas`.
+- `src/pages/app/Categorizacao.tsx` — refator para Tabs (Pendentes + Orçamentos), título "Categorias".
+- `src/contexts/FinanceContext.tsx` — adicionar `bills`, `categoryBudgets`, `budgetProgress`, mutações e realtime das novas tabelas.
+
+---
+
+## 7. O que NÃO está incluído (alinhamento de escopo)
+
+- Categorização automática por IA (excluído por pedido seu anterior).
+- Edição em massa de transações.
+- Relatórios PDF de fatura.
+
+Confirme para eu aplicar as mudanças.
