@@ -314,6 +314,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           value: Math.abs(amountConverted),
           type: isEntrada ? "entrada" : "saida",
           pendingType: pending,
+          pluggyAccountId: t.pluggy_account_id,
           // Metadados auxiliares (não-padrão do nosso Transaction, mas React aceita)
           ...(isInternational
             ? {
