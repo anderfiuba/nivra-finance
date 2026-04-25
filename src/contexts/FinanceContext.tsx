@@ -79,6 +79,12 @@ export interface CategoryBudget {
   alertThreshold: number;
 }
 
+export interface CardCycleSetting {
+  pluggyAccountId: string;
+  closingDay: number | null;
+  dueDay: number | null;
+}
+
 export interface PluggyItemSummary {
   id: string;
   pluggyItemId: string;
@@ -140,6 +146,9 @@ interface FinanceContextValue {
   budgetAlerts: number;
   upsertBudget: (label: string, monthlyLimit: number, alertThreshold: number) => Promise<void>;
   deleteBudget: (id: string) => Promise<void>;
+  // Configuração de ciclos por cartão (manual)
+  cardCycleSettings: Record<string, CardCycleSetting>;
+  upsertCardCycle: (pluggyAccountId: string, closingDay: number, dueDay: number) => Promise<void>;
 }
 
 const FinanceContext = createContext<FinanceContextValue | null>(null);
