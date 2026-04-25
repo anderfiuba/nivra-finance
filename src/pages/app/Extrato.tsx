@@ -19,27 +19,17 @@ const Extrato = () => {
     [transactions],
   );
 
-  // Categorias agrupadas por categoria pai (estrutura oficial Pluggy).
-  const groupedCategories = useMemo(() => {
-    // Resolve nome traduzido do parent buscando o próprio nó pai no catálogo.
-    const byId = new Map(categories.map((c) => [c.id, c]));
-    const groups = new Map<string, { id: string; label: string }[]>();
-    for (const c of categories) {
-      const parentNode = c.parentId ? byId.get(c.parentId) : null;
-      const parent = parentNode
-        ? (parentNode.descriptionTranslated ?? parentNode.description)
-        : (c.descriptionTranslated ?? c.description);
-      const label = c.descriptionTranslated ?? c.description;
-      const arr = groups.get(parent) ?? [];
-      arr.push({ id: c.id, label });
-      groups.set(parent, arr);
-    }
-    return Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b));
+  // Apenas categorias PAI (top-level Pluggy). UI simplificada.
+  const parentCategories = useMemo(() => {
+    return categories
+      .filter((c) => c.parentId === null)
+      .map((c) => ({ id: c.id, label: c.descriptionTranslated ?? c.description }))
+      .sort((a, b) => a.label.localeCompare(b.label));
   }, [categories]);
 
   const categoryFilterOptions = useMemo(
-    () => Array.from(new Set(transactions.map((t) => t.category).filter(Boolean))).sort(),
-    [transactions],
+    () => parentCategories.map((p) => p.label),
+    [parentCategories],
   );
 
   const filtered = useMemo(() => {
@@ -150,18 +140,11 @@ const Extrato = () => {
                       <SelectValue placeholder="Sem categoria" />
                     </SelectTrigger>
                     <SelectContent className="max-h-80">
-                      {groupedCategories.length === 0 ? (
+                      {parentCategories.length === 0 ? (
                         <SelectItem value="__none" disabled>Carregando categorias…</SelectItem>
                       ) : (
-                        groupedCategories.map(([parent, items]) => (
-                          <div key={parent}>
-                            <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                              {parent}
-                            </div>
-                            {items.map((it) => (
-                              <SelectItem key={it.id} value={it.label}>{it.label}</SelectItem>
-                            ))}
-                          </div>
+                        parentCategories.map((it) => (
+                          <SelectItem key={it.id} value={it.label}>{it.label}</SelectItem>
                         ))
                       )}
                     </SelectContent>

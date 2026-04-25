@@ -53,21 +53,12 @@ const Categorizacao = () => {
   const [draftLimit, setDraftLimit] = useState<string>("");
   const [draftThreshold, setDraftThreshold] = useState<number>(80);
 
-  // Agrupa categorias da Pluggy por categoria pai.
-  const groupedCategories = useMemo(() => {
-    const byId = new Map(categories.map((c) => [c.id, c]));
-    const groups = new Map<string, { id: string; label: string }[]>();
-    for (const c of categories) {
-      const parentNode = c.parentId ? byId.get(c.parentId) : null;
-      const parent = parentNode
-        ? (parentNode.descriptionTranslated ?? parentNode.description)
-        : (c.descriptionTranslated ?? c.description);
-      const label = c.descriptionTranslated ?? c.description;
-      const arr = groups.get(parent) ?? [];
-      arr.push({ id: c.id, label });
-      groups.set(parent, arr);
-    }
-    return Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b));
+  // Apenas categorias PAI (top-level Pluggy). Lista enxuta para a UI.
+  const parentCategories = useMemo(() => {
+    return categories
+      .filter((c) => c.parentId === null)
+      .map((c) => ({ id: c.id, label: c.descriptionTranslated ?? c.description }))
+      .sort((a, b) => a.label.localeCompare(b.label));
   }, [categories]);
 
   // Mantemos apenas itens "sem categoria" na fila de pendências.
@@ -116,11 +107,6 @@ const Categorizacao = () => {
       }));
     return [...withBudget, ...expensesOnly].sort((a, b) => b.spent - a.spent);
   }, [budgetProgress, expensesByCategoryCycle]);
-
-  // Lista para o seletor do dialog: categorias-pai (agregam filhas) +
-  // filhas (rótulo específico). Por padrão sugerimos a pai, cujo orçamento
-  // soma todas as filhas via `budgetProgress` no FinanceContext.
-  // O label do pai é o próprio nome da chave em `groupedCategories`.
 
   const openBudgetDialog = (label: string | null) => {
     setBudgetDialogLabel(label);
@@ -239,18 +225,11 @@ const Categorizacao = () => {
                         <SelectValue placeholder="Definir categoria" />
                       </SelectTrigger>
                       <SelectContent className="max-h-80">
-                        {groupedCategories.length === 0 ? (
+                        {parentCategories.length === 0 ? (
                           <SelectItem value="__none" disabled>Carregando…</SelectItem>
                         ) : (
-                          groupedCategories.map(([parent, items]) => (
-                            <div key={parent}>
-                              <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                                {parent}
-                              </div>
-                              {items.map((it) => (
-                                <SelectItem key={it.id} value={it.label}>{it.label}</SelectItem>
-                              ))}
-                            </div>
+                          parentCategories.map((it) => (
+                            <SelectItem key={it.id} value={it.label}>{it.label}</SelectItem>
                           ))
                         )}
                       </SelectContent>
@@ -383,28 +362,14 @@ const Categorizacao = () => {
                 <Label>Categoria</Label>
                 <Select value={budgetDialogLabel ?? ""} onValueChange={(v) => setBudgetDialogLabel(v)}>
                   <SelectTrigger className="bg-input border-border">
-                    <SelectValue placeholder="Selecione uma categoria (pai = agrega filhas)" />
+                    <SelectValue placeholder="Selecione uma categoria" />
                   </SelectTrigger>
                   <SelectContent className="max-h-80">
-                    {groupedCategories.map(([parent, items]) => (
-                      <div key={parent}>
-                        <SelectItem value={parent} className="font-semibold">
-                          {parent} <span className="text-[10px] font-normal text-muted-foreground ml-1">(agrega tudo)</span>
-                        </SelectItem>
-                        {items
-                          .filter((it) => it.label !== parent)
-                          .map((it) => (
-                            <SelectItem key={it.id} value={it.label} className="pl-6">
-                              {it.label}
-                            </SelectItem>
-                          ))}
-                      </div>
+                    {parentCategories.map((it) => (
+                      <SelectItem key={it.id} value={it.label}>{it.label}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-[11px] text-muted-foreground">
-                  Dica: selecione a <strong>categoria-pai</strong> para limitar o gasto somando todas as suas subcategorias.
-                </p>
               </div>
             )}
             {budgetDialogLabel && (

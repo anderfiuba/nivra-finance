@@ -1,110 +1,85 @@
 
-Investiguei o banco e o código. Os três problemas têm causas claras e correções pontuais — sem mocks, tudo continua usando a Pluggy.
+## Objetivo
+Simplificar toda a UI para mostrar **apenas categorias pai** (top-level). Filhas continuam vindo da Pluggy por baixo, mas resolvemos para o pai correspondente usando o catálogo `/categories` (já sincronizado em `pluggy_categories`, com `parent_id` / `parent_description`).
 
 ---
 
-## 1. Faturas — histórico não aparece
+## 1. Resolução automática para o PAI no Extrato/Dashboard
 
-### Diagnóstico
-- Em `pluggy_bills` existem **12 faturas** persistidas para o cartão `gold`, todas com `pluggy_account_id = "f6dafb7e-b7e3-478d-870c-3de742c73182"` (o id da Pluggy).
-- Em `pluggy_accounts`, o `id` interno (UUID Supabase) do cartão é `2e284e62-…` e o id Pluggy fica em `pluggy_account_id`.
-- Em `src/pages/app/Faturas.tsx` o filtro é:
-  ```ts
-  bills.filter(b => b.pluggyAccountId === selectedAccount.id)
-  ```
-  Mas `selectedAccount.id` é o **UUID interno** (`2e284e62-…`), enquanto `b.pluggyAccountId` é o **id Pluggy** (`f6dafb7e-…`). Eles nunca batem → lista vazia.
-- O mesmo erro acontece no card-resumo (Limite, Vencimento) ao depender de `activeBill`.
-- Há também uma comparação frágil em `billTxs`: `t.account !== (selectedAccount.marketingName || selectedAccount.name)` — `marketingName` do cartão `gold` é `null`, e `t.account` vem de `accountMap` que prioriza `marketing_name || name`, mas se houver homônimo entre BANK/CREDIT (caso típico no Nubank, com mesmo nome em conta e cartão) podem mesclar. Vou corrigir para comparar pelo id Pluggy da conta.
+**`src/contexts/FinanceContext.tsx`** — função `effectiveCategory` (linhas ~285-302).
 
-### Correção
-**`src/contexts/FinanceContext.tsx`**
-- Expor o `pluggyAccountId` no `FinanceAccount` (hoje só temos `id` interno).
-- Na construção das transações, anexar `pluggyAccountId` como meta (`accountPluggyId`) ou, mais simples, expor um helper `accountById` no contexto.
+Hoje resolve a categoria efetiva como filha (ex.: `Restaurantes, bares e lanchonetes`). Vou trocar por uma função `resolveToParent(categoryId, fallbackDescription)` que:
+1. Procura o nó no catálogo via `category_id`.
+2. Se o nó tem `parent_id`, busca o **pai** e retorna `descriptionTranslated` do pai (ex.: `Alimentos e bebidas`).
+3. Se já é pai (`parent_id IS NULL`), retorna ele mesmo.
+4. Fallback: tenta `category_pluggy` em `catByDescription`, mesma lógica.
+5. Override manual (`t.category`) continua tendo prioridade — mas agora a UI só oferece pais (ver §2), então o override também será sempre um pai.
 
-**`src/pages/app/Faturas.tsx`**
-- Trocar `b.pluggyAccountId === selectedAccount.id` por `b.pluggyAccountId === selectedAccount.pluggyAccountId`.
-- Para `billTxs`, filtrar por `pluggyAccountId` da transação em vez de `t.account === name`. Vou adicionar `pluggyAccountId` ao tipo `Transaction` (já temos no SELECT, falta propagar).
-
-Resultado: histórico de 12 meses aparece imediatamente, sem novo sync.
+Resultado: **toda transação no Extrato exibe categoria PAI** (ex.: `Alimentos e bebidas`, `Serviços`, `Renda`), independente da granularidade da Pluggy.
 
 ---
 
-## 2. Orçamentos — não detectam gasto da categoria escolhida
+## 2. Seletor do Extrato — só categorias PAI
 
-### Diagnóstico
-- Em `pluggy_categories`, `Food and drinks` (id `11000000`) é categoria **pai**; suas filhas são `Eating out` (`Restaurantes, bares e lanchonetes`) e `Food delivery` (`Delivery de alimentos`).
-- A Pluggy carimba transação com a **categoria filha**, ex.: `category_pluggy = "Eating out"` → resolveCategory devolve **"Restaurantes, bares e lanchonetes"** (filha), nunca **"Alimentos e bebidas"** (pai).
-- Quando o usuário cria orçamento na UI usando o seletor pai/filho, ele provavelmente seleciona o nome do **pai** (ex. "Alimentos e bebidas"), e o `budgetProgress` faz match exato `spentMap.get(b.categoryLabel)` que devolve `0` — mesmo havendo R$ X em "Restaurantes, bares e lanchonetes".
-- Confirmação no banco: existe orçamento "Alimentos e bebidas" mas as transações estão como `Eating out`/`Food delivery`.
+**`src/pages/app/Extrato.tsx`** — bloco `groupedCategories` (linhas ~24-40) e o `<Select>` da transação (linhas ~149-165).
 
-### Correção
-Reformular o cálculo de orçamento para tratar o **rótulo da categoria pai como agregador**.
+- Trocar `groupedCategories` por `parentCategories`: filtrar `categories` por `parentId === null`, ordenar por `descriptionTranslated`. Lista enxuta de ~20 itens.
+- Remover o seletor agrupado (header cinza + filhas indentadas). Vira um `<Select>` flat: só os pais.
+- Filtro do topo "Categoria" também passa a listar apenas pais (agora coerente, já que toda transação resolve para pai).
 
-**`src/contexts/FinanceContext.tsx` — novo `budgetProgress`:**
-1. Construir um índice `labelToParentLabel` a partir do catálogo `pluggy_categories` (descriptionTranslated da filha → descriptionTranslated do pai; pais mapeiam para si mesmos).
-2. Ao computar `spent` do orçamento, somar todas as despesas do ciclo cuja categoria efetiva seja:
-   - exatamente o `categoryLabel`, OU
-   - filha cujo pai resolva para esse `categoryLabel`.
-3. Manter o caminho atual de match exato como fallback (caso o usuário tenha criado orçamento numa categoria filha específica — ex.: só "Streaming de vídeo").
-
-**Seletor do dialog "Novo orçamento" (`Categorizacao.tsx`):**
-- Mostrar somente **categorias pai** + opção "todas as filhas". Hoje o `allCategoryLabels` mistura pai e filha, gerando confusão.
-- Reescrever para `Select` agrupado: cabeçalho com pai (clicável → orçamento agregado) e itens filhas (clicáveis → orçamento da filha específica).
-- Pré-selecionar pai por padrão.
-
-**Bonus:** filtrar do somatório a categoria `Same person transfer` (pai `04000000`), já parcialmente filtrada por regex; agora fica explícito via parentId.
-
-Resultado: orçamento "Alimentos e bebidas" passa a somar Eating out + Food delivery + qualquer outra filha, refletindo o gasto real.
+Removido: `categoryFilterOptions` baseado em `t.category` distintos (que misturava filhas).
 
 ---
 
-## 3. Conexões → Remover conexão (não-operativo)
+## 3. Seletor de Orçamentos — só PAIs
 
-### Diagnóstico
-Em `src/pages/app/Conexoes.tsx` o botão "Remover" (linhas 355-361) **não tem `onClick`** — está zerado. Nenhuma rota/edge function chamada.
+**`src/pages/app/Categorizacao.tsx`** — bloco `groupedCategoryOptions` (linhas ~55-75) e dialog "Novo orçamento".
 
-### Correção
-**Edge function nova: `supabase/functions/pluggy-delete-item/index.ts`** (verify_jwt = true).
-Fluxo conforme documentação Pluggy (`DELETE /items/{id}`):
-1. Valida JWT, recupera `user_id`.
-2. Recebe `{ itemId }` no body (Zod-validated).
-3. Confere posse: `pluggy_items` onde `pluggy_item_id = itemId AND user_id = auth.uid()`. Se não existe → 404.
-4. Chama `DELETE https://api.pluggy.ai/items/{itemId}` (autenticado com `pluggy_client_id/secret`, igual às demais funções). Trata 404/410 da Pluggy como sucesso (já removido lá).
-5. Em transação no DB (via service role + filtros `user_id`):
-   - `DELETE FROM pluggy_transactions WHERE pluggy_item_id = $1 AND user_id = $2`
-   - `DELETE FROM pluggy_bills WHERE pluggy_item_id = $1 AND user_id = $2`
-   - `DELETE FROM pluggy_accounts WHERE pluggy_item_id = $1 AND user_id = $2`
-   - `DELETE FROM pluggy_items WHERE pluggy_item_id = $1 AND user_id = $2`
-   - **Não** apago `category_budgets` (são preferências do usuário, sobrevivem à reconexão).
-6. Retorna `{ ok: true }`.
+- Substituir pelo mesmo `parentCategories` (somente pais).
+- Remover hierarquia visual (cabeçalho + indentação de filhas). Lista flat.
+- A lógica de agregação no `budgetProgress` (`FinanceContext.tsx` linhas 549-607) **continua intacta** — ela já soma filhas no pai. Mas como agora todo orçamento é pai e toda transação resolve para pai, a parte de "fallback exato" e `labelToParentLabel` fica redundante. Vou simplificar: `spent = spentMap.get(b.categoryLabel) ?? 0`. Mais limpo, mesmo resultado.
 
-**`supabase/config.toml`:** registra `[functions.pluggy-delete-item] verify_jwt = true`.
+---
 
-**`src/pages/app/Conexoes.tsx`:**
-- Estado `removingId`.
-- Trocar o `<Button>Remover</Button>` por `AlertDialog` (shadcn) com confirmação ("Isso vai apagar contas, transações e faturas dessa conexão. Os limites de gastos definidos serão mantidos.").
-- `onConfirm` invoca `pluggy-delete-item`, mostra toast de sucesso/erro, dispara `loadItems()` e o realtime do FinanceContext já atualiza Dashboard/Extrato/Faturas.
+## 4. Limpar overrides antigos no banco (opção que você escolheu)
 
-Resultado: botão funcional, dados do banco saem do painel imediatamente, possíveis reconexões futuras ficam limpas.
+Existem **4 transações** com `category` preenchido manualmente (de um total de 424). Vou rodar uma migração de dados que zera apenas os overrides cuja categoria salva **não seja** o nome de uma categoria pai do catálogo:
+
+```sql
+UPDATE pluggy_transactions
+SET category = NULL
+WHERE category IS NOT NULL
+  AND category NOT IN (
+    SELECT description_translated
+    FROM pluggy_categories
+    WHERE parent_id IS NULL
+  );
+```
+
+Como nenhum dos 4 overrides atuais provavelmente bate com nome de pai (já que a UI antiga oferecia pai+filha misturados), o efeito esperado é: limpar todos os 4. Eles passam a herdar a categoria PAI vinda da Pluggy automaticamente. Quem realmente quiser overrider, refaz pelo seletor novo (que só mostra pais → fica consistente).
+
+---
+
+## 5. Ajuste cosmético: categoria PAI sempre exibida
+
+No card da transação no Extrato, hoje mostramos `t.category` cru. Vou exibir sempre a categoria pai resolvida (já vem assim do contexto após §1). Sem mudança extra de markup.
 
 ---
 
 ## Arquivos afetados
 
-**Editados**
-- `src/contexts/FinanceContext.tsx` — expor `pluggyAccountId` em accounts/transactions; novo cálculo de `budgetProgress` agregando filhas no pai.
-- `src/pages/app/Faturas.tsx` — corrigir filtro de bills + filtro de transações por id Pluggy.
-- `src/pages/app/Categorizacao.tsx` — seletor de categoria do orçamento agrupado por pai/filha; pré-seleção do pai.
-- `src/pages/app/Conexoes.tsx` — botão Remover com `AlertDialog` + chamada da edge function.
-- `supabase/config.toml` — bloco `[functions.pluggy-delete-item]`.
+**Editados:**
+- `src/contexts/FinanceContext.tsx` — `effectiveCategory` resolve para pai; simplificar `budgetProgress`.
+- `src/pages/app/Extrato.tsx` — `parentCategories`, seletor flat, filtro de categoria por pais.
+- `src/pages/app/Categorizacao.tsx` — seletor de orçamento flat (só pais).
 
-**Novos**
-- `supabase/functions/pluggy-delete-item/index.ts` — desconexão na Pluggy + limpeza no banco.
+**Migração de dados (insert tool):**
+- `UPDATE pluggy_transactions SET category = NULL WHERE category NOT IN (pais)`.
 
 ---
 
-## Fora do escopo (não vou tocar)
-- IA de categorização (você pediu para não implementar).
-- Reprocessar `category` (override manual) com base no novo agregador — orçamento usa só categoria efetiva, então isso não é necessário.
+## Fora do escopo
+- Não vou apagar categorias filhas do `pluggy_categories` — a sincronização do catálogo continua trazendo tudo da Pluggy (precisamos das filhas para resolver `category_id` → pai).
+- Dashboard usa `expensesByCategoryCycle`, que já agrupa pelo nome resolvido — vai automaticamente passar a agrupar por pai sem mudança extra.
 
-Confirma que posso aplicar.
+Confirma que posso aplicar?

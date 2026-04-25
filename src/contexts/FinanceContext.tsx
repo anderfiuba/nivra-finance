@@ -282,11 +282,17 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         else if (txType === "DEBIT") isEntrada = false;
         else isEntrada = isCreditAccount ? amountRaw < 0 : amountRaw >= 0;
 
-        // Categoria efetiva (em PT-BR sempre que possível):
-        //   1. Override manual do usuário (`category`) tem prioridade.
-        //   2. Senão, resolve `category_id` no catálogo Pluggy → descriptionTranslated.
-        //   3. Senão, resolve `category_pluggy` (description em EN) no catálogo.
-        //   4. Senão, mostra como veio (raro) ou marca pendente.
+        // Categoria efetiva — SEMPRE categoria PAI (top-level da hierarquia Pluggy).
+        //   1. Override manual do usuário (`category`) tem prioridade — UI só oferece pais.
+        //   2. Senão, resolve `category_id`/`category_pluggy` no catálogo e sobe para o pai.
+        //   3. Se o nó já é pai (parent_id null), retorna ele mesmo.
+        const resolveToParent = (
+          node: { id: string; description: string; descriptionTranslated: string | null; parentId: string | null } | null,
+        ): string => {
+          if (!node) return "";
+          const target = node.parentId ? (catById.get(node.parentId) ?? node) : node;
+          return target.descriptionTranslated || target.description;
+        };
         let effectiveCategory = "";
         if (t.category && t.category.trim().length > 0) {
           effectiveCategory = t.category;
@@ -294,9 +300,8 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           const node = (t.category_id && catById.get(t.category_id))
             || (t.category_pluggy && catByDescription.get(t.category_pluggy))
             || null;
-          if (node) {
-            effectiveCategory = node.descriptionTranslated || node.description;
-          } else if (t.category_pluggy) {
+          effectiveCategory = resolveToParent(node);
+          if (!effectiveCategory && t.category_pluggy) {
             effectiveCategory = t.category_pluggy;
           }
         }
@@ -542,54 +547,15 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       .sort((a, b) => b.value - a.value);
   }, [cycleTransactions]);
 
-  // Índice: rótulo de categoria (PT-BR) → rótulo do PAI (PT-BR).
-  // Pais mapeiam para si mesmos. Permite que um orçamento cadastrado no nome
-  // do pai (ex.: "Alimentos e bebidas") agregue gastos das filhas
-  // ("Restaurantes...", "Delivery..."), conforme a hierarquia da Pluggy.
-  const labelToParentLabel = useMemo(() => {
-    const labelOf = (
-      desc: string | null | undefined,
-      tr: string | null | undefined,
-    ) => (tr && tr.length > 0 ? tr : desc ?? "");
-    const map = new Map<string, string>();
-    const byId = new Map(categories.map((c) => [c.id, c]));
-    for (const c of categories) {
-      const ownLabel = labelOf(c.description, c.descriptionTranslated);
-      const parent = c.parentId ? byId.get(c.parentId) : null;
-      const parentLabel = parent
-        ? labelOf(parent.description, parent.descriptionTranslated)
-        : ownLabel;
-      map.set(ownLabel, parentLabel);
-    }
-    return map;
-  }, [categories]);
-
-  // Progresso de orçamentos: cruza expensesByCategoryCycle com categoryBudgets.
-  // Match em duas etapas:
-  //   1. Soma exata pelo rótulo da categoria (filha ou pai exato).
-  //   2. Se o orçamento for um rótulo de categoria-pai, soma também todas as
-  //      filhas cuja resolução de pai bate com esse rótulo.
+  // Progresso de orçamentos: como toda transação já é resolvida para a
+  // categoria PAI no `effectiveCategory`, basta cruzar pelo rótulo direto.
   const budgetProgress = useMemo<BudgetProgress[]>(() => {
     const spentMap = new Map<string, number>();
     for (const e of expensesByCategoryCycle) {
       spentMap.set(e.name, (spentMap.get(e.name) ?? 0) + e.value);
     }
-    // Para agregação por pai, soma despesas indexando pelo PAI da categoria.
-    const spentByParent = new Map<string, number>();
-    for (const e of expensesByCategoryCycle) {
-      const parent = labelToParentLabel.get(e.name) ?? e.name;
-      spentByParent.set(parent, (spentByParent.get(parent) ?? 0) + e.value);
-    }
     return categoryBudgets.map((b) => {
-      // Se o orçamento foi cadastrado no nome do pai, usa agregado de filhas.
-      // Caso contrário (rótulo é uma filha específica), usa match exato.
-      const isParentLabel =
-        Array.from(labelToParentLabel.values()).includes(b.categoryLabel) ||
-        // pais sempre mapeiam para si mesmos no índice
-        (labelToParentLabel.get(b.categoryLabel) === b.categoryLabel);
-      const spent = isParentLabel
-        ? (spentByParent.get(b.categoryLabel) ?? spentMap.get(b.categoryLabel) ?? 0)
-        : (spentMap.get(b.categoryLabel) ?? 0);
+      const spent = spentMap.get(b.categoryLabel) ?? 0;
       const ratio = b.monthlyLimit > 0 ? spent / b.monthlyLimit : 0;
       let status: BudgetStatus = "ok";
       if (ratio >= 1) status = "over";
@@ -604,7 +570,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         budgetId: b.id,
       };
     });
-  }, [categoryBudgets, expensesByCategoryCycle, labelToParentLabel]);
+  }, [categoryBudgets, expensesByCategoryCycle]);
 
   const budgetAlerts = useMemo(
     () => budgetProgress.filter((b) => b.status !== "ok").length,
