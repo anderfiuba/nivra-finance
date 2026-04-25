@@ -185,7 +185,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
             "id,description,amount,amount_in_account_currency,currency,account_currency,transaction_date,category,category_pluggy,category_id,pluggy_account_id,status,operation_type,merchant_name,installment_number,total_installments,type",
           )
           .order("transaction_date", { ascending: false })
-          .limit(1000),
+          .limit(5000),
         supabase
           .from("pluggy_categories")
           .select("id,description,description_translated,parent_id,parent_description")
@@ -205,10 +205,15 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
 
       // Mapeia o id Pluggy da conta → nome amigável + tipo (necessário pra interpretar
       // o sinal de transações de cartão). Transações e bills referenciam pelo id Pluggy.
-      type AccMeta = { name: string; type: string | null };
+      type AccMeta = { name: string; type: string | null; tag: string | null };
       const accountMap = new Map<string, AccMeta>();
       const accs: FinanceAccount[] = (accData ?? []).map((a) => {
-        accountMap.set(a.pluggy_account_id, { name: a.marketing_name || a.name, type: a.type });
+        const last4 = a.card_number_last4 ?? null;
+        accountMap.set(a.pluggy_account_id, {
+          name: a.marketing_name || a.name,
+          type: a.type,
+          tag: last4 ? `••${last4}` : null,
+        });
         return {
           id: a.id,
           pluggyAccountId: a.pluggy_account_id,
@@ -320,6 +325,12 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           type: isEntrada ? "entrada" : "saida",
           pendingType: pending,
           pluggyAccountId: t.pluggy_account_id,
+          status: t.status ?? null,
+          operationType: t.operation_type ?? null,
+          merchantName: t.merchant_name ?? null,
+          installmentNumber: t.installment_number ?? null,
+          totalInstallments: t.total_installments ?? null,
+          accountTag: accMeta?.tag ?? null,
           // Metadados auxiliares (não-padrão do nosso Transaction, mas React aceita)
           ...(isInternational
             ? {
