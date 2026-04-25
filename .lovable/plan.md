@@ -1,65 +1,64 @@
+## Diagnóstico (com base na doc oficial Pluggy + dados reais no DB)
 
-## Diagnóstico (baseado em dados reais já no banco)
+Inspecionei `pluggy_transactions`, `pluggy_categories` e a documentação oficial (`/reference/transactions`). Os problemas que você está vendo são lógica de leitura no frontend, não dados perdidos:
 
-Inspecionando `pluggy_transactions` e `pluggy_accounts` do seu usuário, encontrei a raiz dos problemas:
+1. **Tudo aparece como entrada** — `FinanceContext.tsx` calcula `isEntrada = signedAmount >= 0` baseado em inverter o sinal só pra cartão. Mas a doc da Pluggy é explícita: o **campo `type`** (`DEBIT` = outflow, `CREDIT` = inflow) é a fonte de verdade, válido tanto para conta bancária quanto para cartão. O `amount` por si só tem semântica diferente em cada tipo de conta. Os dados no DB já vêm com `type` correto (`DEBIT` para gastos, `CREDIT` para entrada/pagamento de fatura).
 
-| Sintoma na UI | Causa real |
-|---|---|
-| Openai aparece como **R$ 51,52** (valor da fatura), mas extrato mostra **−$10,00 USD** sem conversão consistente | Salvamos `amount = -10.00` (USD) e ignoramos `amountInAccountCurrency = 51.52` (BRL). |
-| Cartão "gold" mostra `-R$ 4.106,91` mas sem **limite (R$ 5.150)** nem **% usado (79.7%)** | Não persistimos `creditData.creditLimit`, `availableCreditLimit`, `balanceDueDate`, `balanceCloseDate`, `minimumPayment`. |
-| "Faturas do mês" não existe | Endpoint `/bills` da Pluggy nunca foi consumido. |
-| Todas as transações caem em "Sem categoria" | A Pluggy já entrega `category` ("Digital services", "Tax on financial operations", "Transfer - PIX"…) mas só lemos quando o usuário define manualmente. |
-| Lista de categorias do select é hardcoded ("Moradia / Alimentação / …") | Deveria vir do endpoint oficial `/categories` da Pluggy (árvore com `id`, `description`, `descriptionTranslated`, `parentId`). |
-| Pagamentos de fatura aparecem como entrada/saída duplicada | Sinal do `amount` em cartão é **invertido manualmente** no `pluggy-sync-data`, mas a Pluggy já entrega o sinal correto (positivo = gasto, negativo = pagamento) — estamos duplicando lógica. |
+2. **Categorias todas vazias** — A Pluggy já entrega categoria nativa em `category_pluggy` (ex: `"Transfers"`, `"Digital services"`, `"Electronics"`). O FinanceContext só considera `category` (override manual) e ignora `category_pluggy` na hora de exibir; ele usa só pra decidir "tem ou não". Resultado: mesmo com categoria da Pluggy preenchida, a UI mostra "Sem categoria".
 
-## O que vou fazer (seguindo estritamente a doc oficial)
+3. **Categorias em inglês** — O catálogo `pluggy_categories` (130 linhas) tem `description_translated` em PT-BR (`"Transferências"`, `"Serviços digitais"`, `"Eletrônicos"`), mas o frontend exibe `category_pluggy` cru (em inglês).
 
-### 1. Banco — novas colunas e tabelas
+4. **Pendências de categorização** — Como a regra atual só considera `pendingType: "sem_categoria"` quando AMBOS estão vazios, isso já está alinhado com o que você quer. Após o fix, transações com categoria nativa Pluggy saem da fila automaticamente.
 
-**Migration nova:**
+## Plano de Implementação
 
-- `pluggy_accounts` ganha: `credit_limit`, `available_credit_limit`, `balance_due_date`, `balance_close_date`, `minimum_payment`, `card_brand`, `card_level`, `card_number_last4`, `bank_overdraft_limit`, `bank_overdraft_used`, `automatically_invested_balance`, `raw_payload jsonb`. Tudo nullable.
-- `pluggy_transactions` ganha: `amount_in_account_currency numeric`, `account_currency text`, `status text` (PENDING|POSTED), `category_id text` (id Pluggy), `category_parent_id text`, `installment_number int`, `total_installments int`, `merchant_name text`, `operation_type text`. RLS já existente cobre.
-- Nova tabela `pluggy_categories` (catálogo global, **sem `user_id`**, leitura pública para `authenticated`): `id text PK`, `description text`, `description_translated text`, `parent_id text`, `parent_description text`. Populada por uma sincronização leve do `/categories`.
-- Nova tabela `pluggy_bills` para faturas de cartão: `id uuid`, `user_id`, `pluggy_bill_id text unique`, `pluggy_account_id text`, `due_date date`, `total_amount numeric`, `total_amount_currency text`, `minimum_payment_amount numeric`, `allows_installments bool`, `paid bool`, `raw_payload jsonb`. RLS `auth.uid() = user_id`.
+### 1. `src/contexts/FinanceContext.tsx` — adotar regras oficiais Pluggy
 
-### 2. Edge Function `pluggy-sync-data` — alinhar 100% com a doc
+**Sinal (entrada vs saída):**
+- Substituir a heurística de inversão por cartão pelo campo oficial `type`:
+  - `t.type === "CREDIT"` → `entrada`
+  - `t.type === "DEBIT"` → `saida`
+- Fallback (raros casos sem `type`): usar `amount > 0` para conta BANK; cartão CREDIT inverte.
+- Adicionar `type` ao `select()` (já está, confirmar).
 
-- **Accounts**: persistir `creditData.*` em colunas novas. Para `BANK`, persistir `bankData.overdraftContractedLimit`, `overdraftUsedLimit`, `automaticallyInvestedBalance`. **Remover a inversão manual de balance** para cartão: a Pluggy já documenta que o `balance` de `CREDIT` representa a fatura aberta (dívida). Vamos guardar como vem (positivo) e tratar o sinal **na camada de leitura** baseado em `type === 'CREDIT'`. Isso evita corromper o dado bruto.
-- **Transactions**: salvar `amount` **exatamente como a Pluggy entrega** (com sinal). Doc: para cartão, positivo = gasto, negativo = pagamento. Para conta corrente, `type DEBIT/CREDIT` + sinal já vêm consistentes via Pluggy. Persistir também `amountInAccountCurrency`, `currencyCode` da transação, `status`, `categoryId`, `creditCardMetadata.installmentNumber/totalInstallments`, `merchant.name`, `operationType`.
-- **Categories**: ao primeiro sync (ou via função dedicada `pluggy-sync-categories`), buscar `/categories` e popular `pluggy_categories`. Não depende de usuário (catálogo global).
-- **Bills**: para cada conta `CREDIT_CARD`, buscar `/bills?accountId=...` e gravar em `pluggy_bills`. Tratar paginação igual a transactions.
+**Valor exibido (BRL):**
+- Para somatórios e exibição em BRL, priorizar `amount_in_account_currency` quando `currency !== account_currency`, conforme doc (`amountInAccountCurrency`). Senão, usar `amount`.
+- O valor armazenado em `value: Math.abs(...)` continua sendo o módulo, e `type` controla o sinal visual.
 
-### 3. Frontend — usar dados da Pluggy de verdade
+**Categoria efetiva (cruzamento com catálogo PT-BR):**
+- Construir um Map `categoryByName: Map<string, PluggyCategoryNode>` indexado por `description` (inglês, como vem em `category_pluggy`) e por `id` (para `category_id`).
+- Categoria efetiva da transação:
+  1. Se `t.category` (override manual) preenchido → usa.
+  2. Senão se `t.category_id` ou `t.category_pluggy` resolvem no catálogo → usa `description_translated` (PT-BR).
+  3. Senão → `""` e marca `pendingType: "sem_categoria"`.
+- Resultado: 95% das transações ficam categorizadas automaticamente em PT-BR; só transações realmente sem categoria nativa vão pra fila.
 
-- **`FinanceContext`**:
-  - Carregar `pluggy_categories` (uma vez por sessão) e expor uma árvore `categoriesTree`. O select passa a ser populado por `descriptionTranslated`, agrupado por categoria pai.
-  - `category` exibido = `category` manual do usuário (override) **OU** `category_pluggy` da Pluggy. Fica "Sem categoria" só quando ambos forem nulos. Isso resolve o problema de "tudo cai em pendência".
-  - `pendingList` filtra transações onde **nem o usuário nem a Pluggy** atribuíram categoria.
-  - Na conversão BRL: se `amountInAccountCurrency` existir e a `currency` da transação ≠ `currency` da conta, usar `amountInAccountCurrency` (já em BRL) para somatórios, mantendo o valor original como referência.
-  - `totalBalance`: somar contas `BANK.balance` − `CREDIT.balance` (cartão é dívida). `availableCreditLimit` exposto separadamente para a UI.
-  - Filtro opcional para excluir `status = 'PENDING'` no consolidado.
+**Exclusão de transferências do gráfico de despesas:**
+- Já tem regex; trocar pra checar contra o `parent_description` (`"Transferências"`) do catálogo, não substring solta.
 
-- **Tela `Contas`**: dois grupos visuais — **Cartões de Crédito** (com barra de uso `balance / creditLimit`, % usado, limite total, vencimento `balanceDueDate`) e **Contas Bancárias** (saldo atual). Igual ao screenshot do Visor que você mandou.
+### 2. `src/pages/app/Extrato.tsx` — Select de categoria correto
 
-- **Tela `Extrato`**:
-  - Mostrar valor em BRL (`amountInAccountCurrency` quando estrangeiro), com o valor original abaixo em cinza (`$10.00 USD`), igual ao layout do Visor.
-  - Badge da categoria nativa Pluggy (em PT-BR, via `descriptionTranslated`).
-  - Select de categoria carregado do catálogo Pluggy real (agrupado por pai).
-  - Quando usuário troca categoria → grava em `pluggy_transactions.category` e (futuramente) cria `Category Rule` na Pluggy via endpoint dedicado — fica como TODO comentado nesta etapa, sem implementar.
+- O `Select` atual usa `value={t.category || ""}` e options com `value={it.label}`. Quando a categoria efetiva vem do catálogo Pluggy (não do override), o select fica vazio mesmo a transação tendo categoria.
+- Trocar pra usar a **categoria efetiva calculada** (já vem resolvida do contexto). Quando o usuário seleciona uma categoria do dropdown, gravamos no `category` (override) — comportamento que já existe.
+- Garantir que `groupedCategories` use `parent_description` traduzida quando disponível (a Pluggy entrega `parentDescription` em inglês; precisamos buscar a tradução pelo `parent_id` no próprio catálogo).
 
-- **Tela `Categorização`**: continua filtrando só "Sem categoria" como você pediu — agora com a regra correta (nem usuário nem Pluggy categorizou). Tendência: lista vai esvaziar drasticamente.
+### 3. `src/pages/app/Categorizacao.tsx`
+- Sem mudança de regra (já filtra `sem_categoria`). Após o fix do contexto, a lista vai diminuir drasticamente porque transações com `category_pluggy` saem da fila.
+- Aplicar a mesma melhoria de `groupedCategories` com parent traduzido.
 
-- **Tela `Dashboard`**: gráfico "Principais categorias" passa a usar `category_pluggy` traduzida quando não houver override — então finalmente terá dados reais.
+### 4. `supabase/functions/pluggy-sync-data/index.ts` — sem mudanças funcionais
+- O backend já está correto e fiel à doc: persiste `amount` cru, `type`, `category_pluggy`, `category_id`, `amount_in_account_currency`. Não toca.
 
-### 4. Limpeza
-- Remover `CATEGORIES` hardcoded em `src/data/mockData.ts` (mantém só `Transaction` interface e `CATEGORY_COLORS` como fallback de cor).
-- Remover a inversão manual de `balance` de cartão em `pluggy-sync-data` (única fonte da verdade: doc Pluggy).
+### 5. Não mexer em
+- Schema do banco (já tem todas as colunas necessárias).
+- `pluggy-sync-categories` (catálogo já populado, 130 linhas).
+- Lógica de saldo consolidado (já está correta: cartão entra como dívida).
 
-### 5. Após deploy
-Você abre **Conexões → Sincronizar**. A função vai reprocessar contas, transações, categorias e faturas. As telas refletem dados corretos imediatamente via Realtime.
+## Resultado esperado
 
-## O que NÃO vou fazer agora (e por quê)
-- IA de categorização própria — você pediu para não implementar.
-- Criar Category Rules na Pluggy automaticamente — escopo separado, fica como próxima iteração.
-- Tela de faturas detalhada — o backend grava `pluggy_bills`, mas a UI dedicada (`/app/faturas`) fica para iteração seguinte para não inflar este PR. O Dashboard já vai mostrar resumo de fatura aberta usando os dados de `creditData`.
+Após o deploy, **sem precisar re-sincronizar**:
+- Extrato mostra ↓ vermelho para gastos (DEBIT) e ↑ verde para entradas (CREDIT), tanto em conta quanto em cartão.
+- Categorias aparecem em PT-BR vindas da Pluggy ("Transferências", "Serviços digitais", "Eletrônicos", "Impostos sobre operações financeiras").
+- Fila de "Categorização Pendente" cai pra perto de zero — só transações sem categoria nativa.
+- Compras internacionais (USD) somam pelo valor convertido em BRL (`amountInAccountCurrency`) no dashboard, mas exibem o original ao lado.
+- Override manual continua funcionando: usuário pode trocar a categoria sugerida pela Pluggy a qualquer momento.

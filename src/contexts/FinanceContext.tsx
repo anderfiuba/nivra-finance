@@ -135,7 +135,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         supabase
           .from("pluggy_transactions")
           .select(
-            "id,description,amount,amount_in_account_currency,currency,account_currency,transaction_date,category,category_pluggy,category_id,pluggy_account_id,status,operation_type,merchant_name,installment_number,total_installments",
+            "id,description,amount,amount_in_account_currency,currency,account_currency,transaction_date,category,category_pluggy,category_id,pluggy_account_id,status,operation_type,merchant_name,installment_number,total_installments,type",
           )
           .order("transaction_date", { ascending: false })
           .limit(1000),
@@ -182,34 +182,67 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       );
 
       // Mapeia para nosso formato Transaction
+      // Index do catálogo Pluggy: por id e por description (EN, como vem em category_pluggy).
+      const catById = new Map<string, { id: string; description: string; descriptionTranslated: string | null; parentId: string | null; parentDescription: string | null }>();
+      const catByDescription = new Map<string, { id: string; description: string; descriptionTranslated: string | null; parentId: string | null; parentDescription: string | null }>();
+      for (const c of (catData ?? [])) {
+        const node = {
+          id: c.id,
+          description: c.description,
+          descriptionTranslated: c.description_translated,
+          parentId: c.parent_id,
+          parentDescription: c.parent_description,
+        };
+        catById.set(c.id, node);
+        catByDescription.set(c.description, node);
+      }
+
       const txs: Transaction[] = (txData ?? []).map((t) => {
         const amountRaw = Number(t.amount);
         const accMeta = accountMap.get(t.pluggy_account_id);
         const isCreditAccount = (accMeta?.type ?? "").toUpperCase() === "CREDIT";
 
-        // Conversão de moeda: se a transação está numa moeda diferente da conta,
-        // a Pluggy entrega o valor já convertido em `amount_in_account_currency`.
-        // Esse é o valor que faz sentido para o saldo do usuário.
+        // Conversão de moeda (doc Pluggy: `amountInAccountCurrency`):
+        // Se a transação está em moeda diferente da conta, esse campo traz
+        // o valor já convertido na moeda da conta (BRL para contas BR).
         const txCurrency = t.currency ?? "BRL";
-        const accCurrency = t.account_currency ?? accMeta ? "BRL" : "BRL";
-        const amountConverted = txCurrency !== (t.account_currency ?? "BRL")
-          && t.amount_in_account_currency !== null
+        const accCurrency = t.account_currency ?? "BRL";
+        const isInternational = txCurrency !== accCurrency && t.amount_in_account_currency !== null;
+        const amountConverted = isInternational
           ? Number(t.amount_in_account_currency)
           : amountRaw;
 
-        // Sinal para nosso modelo "entrada/saida":
-        //  - Conta BANK: amount > 0 = entrada, < 0 = saída (Pluggy já entrega correto).
-        //  - Cartão CREDIT: amount > 0 = gasto (saída), < 0 = pagamento da fatura (entrada).
-        //    Ou seja, INVERTEMOS apenas para exibição.
-        const signedAmount = isCreditAccount ? -amountConverted : amountConverted;
-        const isEntrada = signedAmount >= 0;
+        // Sinal/direção (doc Pluggy /reference/transactions):
+        //   `type` é a fonte oficial: CREDIT = inflow (entrada), DEBIT = outflow (saída).
+        //   Vale para conta BANK e cartão CREDIT — Pluggy normaliza.
+        // Fallback (transação sem `type` por algum conector legado):
+        //   - BANK: amount > 0 = entrada
+        //   - CREDIT (cartão): amount > 0 = gasto (saída) — invertido
+        const txType = (t.type ?? "").toUpperCase();
+        let isEntrada: boolean;
+        if (txType === "CREDIT") isEntrada = true;
+        else if (txType === "DEBIT") isEntrada = false;
+        else isEntrada = isCreditAccount ? amountRaw < 0 : amountRaw >= 0;
 
-        // Categoria efetiva: override manual > Pluggy.
-        const effectiveCategory = (t.category && t.category.trim().length > 0)
-          ? t.category
-          : (t.category_pluggy ?? "");
+        // Categoria efetiva (em PT-BR sempre que possível):
+        //   1. Override manual do usuário (`category`) tem prioridade.
+        //   2. Senão, resolve `category_id` no catálogo Pluggy → descriptionTranslated.
+        //   3. Senão, resolve `category_pluggy` (description em EN) no catálogo.
+        //   4. Senão, mostra como veio (raro) ou marca pendente.
+        let effectiveCategory = "";
+        if (t.category && t.category.trim().length > 0) {
+          effectiveCategory = t.category;
+        } else {
+          const node = (t.category_id && catById.get(t.category_id))
+            || (t.category_pluggy && catByDescription.get(t.category_pluggy))
+            || null;
+          if (node) {
+            effectiveCategory = node.descriptionTranslated || node.description;
+          } else if (t.category_pluggy) {
+            effectiveCategory = t.category_pluggy;
+          }
+        }
 
-        // Pendente apenas se nem usuário nem Pluggy categorizou.
         const pending: PendingType | undefined = effectiveCategory === ""
           ? "sem_categoria"
           : undefined;
@@ -220,11 +253,11 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           description: t.description,
           category: effectiveCategory,
           account: accMeta?.name ?? "Conta",
-          value: Math.abs(signedAmount),
+          value: Math.abs(amountConverted),
           type: isEntrada ? "entrada" : "saida",
           pendingType: pending,
-          // Metadados auxiliares (não-padrão do nosso Transaction, mas Reactjs aceita)
-          ...(txCurrency !== accCurrency && t.amount_in_account_currency !== null
+          // Metadados auxiliares (não-padrão do nosso Transaction, mas React aceita)
+          ...(isInternational
             ? {
                 originalAmount: amountRaw,
                 originalCurrency: txCurrency,
