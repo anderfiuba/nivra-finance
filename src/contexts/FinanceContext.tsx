@@ -325,6 +325,12 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           type: isEntrada ? "entrada" : "saida",
           pendingType: pending,
           pluggyAccountId: t.pluggy_account_id,
+          status: t.status ?? null,
+          operationType: t.operation_type ?? null,
+          merchantName: t.merchant_name ?? null,
+          installmentNumber: t.installment_number ?? null,
+          totalInstallments: t.total_installments ?? null,
+          accountTag: accMeta?.tag ?? null,
           // Metadados auxiliares (não-padrão do nosso Transaction, mas React aceita)
           ...(isInternational
             ? {
