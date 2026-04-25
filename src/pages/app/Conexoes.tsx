@@ -187,6 +187,25 @@ const Conexoes = () => {
     }
   };
 
+  const handleRemove = async (itemId: string, bank: string) => {
+    setRemovingId(itemId);
+    try {
+      const { error } = await supabase.functions.invoke("pluggy-delete-item", {
+        body: { itemId },
+      });
+      if (error) throw error;
+      toast.success(`Conexão removida — ${bank}`, {
+        description: "Contas, transações e faturas desse banco foram apagados.",
+      });
+      loadItems();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Falha ao remover conexão.";
+      toast.error("Erro ao remover conexão", { description: message });
+    } finally {
+      setRemovingId(null);
+    }
+  };
+
   return (
     <div className="p-6 md:p-8 space-y-6 max-w-[1600px] mx-auto">
       <div className="flex items-start justify-between gap-4 flex-wrap">
