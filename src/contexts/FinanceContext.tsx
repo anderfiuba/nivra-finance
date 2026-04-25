@@ -23,6 +23,8 @@ type CycleTotals = { entradas: number; saidas: number; saldo: number };
 
 export interface FinanceAccount {
   id: string;
+  /** ID na Pluggy (chave usada por bills/transactions). */
+  pluggyAccountId: string;
   name: string;
   marketingName: string | null;
   type: string | null;
