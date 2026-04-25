@@ -172,10 +172,10 @@ const Extrato = () => {
               <div className="text-right shrink-0">
                 <p
                   className={`text-sm font-semibold ${
-                    t.type === "entrada" ? "text-success" : "text-foreground"
+                    t.type === "entrada" ? "text-success" : "text-destructive"
                   }`}
                 >
-                  {t.value > 0 ? "+" : ""}
+                  {t.type === "entrada" ? "+" : "−"}
                   {formatBRL(t.value)}
                 </p>
                 {t.originalCurrency && t.originalAmount !== undefined && (
