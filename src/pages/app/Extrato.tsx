@@ -21,9 +21,14 @@ const Extrato = () => {
 
   // Categorias agrupadas por categoria pai (estrutura oficial Pluggy).
   const groupedCategories = useMemo(() => {
+    // Resolve nome traduzido do parent buscando o próprio nó pai no catálogo.
+    const byId = new Map(categories.map((c) => [c.id, c]));
     const groups = new Map<string, { id: string; label: string }[]>();
     for (const c of categories) {
-      const parent = c.parentDescription ?? c.descriptionTranslated ?? c.description;
+      const parentNode = c.parentId ? byId.get(c.parentId) : null;
+      const parent = parentNode
+        ? (parentNode.descriptionTranslated ?? parentNode.description)
+        : (c.descriptionTranslated ?? c.description);
       const label = c.descriptionTranslated ?? c.description;
       const arr = groups.get(parent) ?? [];
       arr.push({ id: c.id, label });
