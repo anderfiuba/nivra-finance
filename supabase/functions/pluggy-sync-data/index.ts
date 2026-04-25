@@ -132,15 +132,19 @@ async function fetchAllBills(accountId: string): Promise<PluggyBill[]> {
   return all;
 }
 
-async function syncCategoriesCatalog(adminClient: ReturnType<typeof createClient>): Promise<void> {
+// deno-lint-ignore no-explicit-any
+async function syncCategoriesCatalog(adminClient: any): Promise<void> {
   // Catálogo é global — só repopulamos se a tabela estiver vazia ou desatualizada (>7 dias).
   const { data: existing } = await adminClient
     .from("pluggy_categories")
     .select("id, updated_at")
     .order("updated_at", { ascending: false })
     .limit(1);
-  const fresh = existing && existing.length > 0
-    && Date.now() - new Date(existing[0].updated_at).getTime() < 7 * 24 * 60 * 60 * 1000;
+  const lastUpdated = existing && existing.length > 0
+    ? String(existing[0].updated_at ?? "")
+    : "";
+  const fresh = lastUpdated.length > 0
+    && Date.now() - new Date(lastUpdated).getTime() < 7 * 24 * 60 * 60 * 1000;
   if (fresh) return;
 
   try {
