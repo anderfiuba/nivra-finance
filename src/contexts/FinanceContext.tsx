@@ -176,7 +176,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         supabase
           .from("pluggy_accounts")
           .select(
-            "id,name,marketing_name,type,subtype,balance,currency,credit_limit,available_credit_limit,balance_due_date,balance_close_date,minimum_payment,card_brand,card_number_last4",
+            "id,pluggy_account_id,name,marketing_name,type,subtype,balance,currency,credit_limit,available_credit_limit,balance_due_date,balance_close_date,minimum_payment,card_brand,card_number_last4",
           )
           .order("name", { ascending: true }),
         supabase
@@ -203,14 +203,15 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           .order("category_label", { ascending: true }),
       ]);
 
-      // Mapeia o id de conta Pluggy → nome amigável + tipo (necessário pra interpretar
-      // o sinal de transações de cartão).
+      // Mapeia o id Pluggy da conta → nome amigável + tipo (necessário pra interpretar
+      // o sinal de transações de cartão). Transações e bills referenciam pelo id Pluggy.
       type AccMeta = { name: string; type: string | null };
       const accountMap = new Map<string, AccMeta>();
       const accs: FinanceAccount[] = (accData ?? []).map((a) => {
-        accountMap.set(a.id, { name: a.marketing_name || a.name, type: a.type });
+        accountMap.set(a.pluggy_account_id, { name: a.marketing_name || a.name, type: a.type });
         return {
           id: a.id,
+          pluggyAccountId: a.pluggy_account_id,
           name: a.marketing_name || a.name,
           marketingName: a.marketing_name ?? null,
           type: a.type,
