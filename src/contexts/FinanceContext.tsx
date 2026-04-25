@@ -13,6 +13,7 @@ import {
 } from "@/lib/cycle";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
 
 const STORAGE_CYCLE = "nivra:cycleDay:v1";
 // Sempre usa a data atual — sem mock.
@@ -46,6 +47,37 @@ export interface PluggyCategoryNode {
   parentDescription: string | null;
 }
 
+export interface FinanceBill {
+  id: string;
+  pluggyBillId: string;
+  pluggyAccountId: string;
+  pluggyItemId: string;
+  dueDate: string | null;
+  totalAmount: number | null;
+  totalAmountCurrency: string;
+  minimumPaymentAmount: number | null;
+  allowsInstallments: boolean | null;
+  paid: boolean;
+}
+
+export interface CategoryBudget {
+  id: string;
+  categoryLabel: string;
+  monthlyLimit: number;
+  alertThreshold: number;
+}
+
+export type BudgetStatus = "ok" | "alert" | "over";
+export interface BudgetProgress {
+  categoryLabel: string;
+  spent: number;
+  limit: number;
+  threshold: number;
+  ratio: number; // spent / limit
+  status: BudgetStatus;
+  budgetId: string;
+}
+
 interface FinanceContextValue {
   transactions: Transaction[];
   accounts: FinanceAccount[];
@@ -75,6 +107,14 @@ interface FinanceContextValue {
   cycleTotals: CycleTotals;
   previousCycleTotals: CycleTotals;
   expensesByCategoryCycle: { name: string; value: number; color: string }[];
+  // Faturas
+  bills: FinanceBill[];
+  // Orçamentos
+  categoryBudgets: CategoryBudget[];
+  budgetProgress: BudgetProgress[];
+  budgetAlerts: number;
+  upsertBudget: (label: string, monthlyLimit: number, alertThreshold: number) => Promise<void>;
+  deleteBudget: (id: string) => Promise<void>;
 }
 
 const FinanceContext = createContext<FinanceContextValue | null>(null);
@@ -114,18 +154,23 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
   const [categories, setCategories] = useState<PluggyCategoryNode[]>([]);
+  const [bills, setBills] = useState<FinanceBill[]>([]);
+  const [categoryBudgets, setCategoryBudgets] = useState<CategoryBudget[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [cycleDay, setCycleDayState] = useState<number>(() => loadCycleDay());
+  const alertedBudgetsRef = React.useRef<Set<string>>(new Set());
 
   const refresh = useCallback(async () => {
     if (!user) {
       setTransactions([]);
       setAccounts([]);
+      setBills([]);
+      setCategoryBudgets([]);
       return;
     }
     setIsLoading(true);
     try {
-      const [{ data: accData }, { data: txData }, { data: catData }] = await Promise.all([
+      const [{ data: accData }, { data: txData }, { data: catData }, { data: billData }, { data: budgetData }] = await Promise.all([
         supabase
           .from("pluggy_accounts")
           .select(
@@ -144,6 +189,16 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           .select("id,description,description_translated,parent_id,parent_description")
           .order("parent_description", { ascending: true, nullsFirst: false })
           .order("description_translated", { ascending: true }),
+        supabase
+          .from("pluggy_bills")
+          .select(
+            "id,pluggy_bill_id,pluggy_account_id,pluggy_item_id,due_date,total_amount,total_amount_currency,minimum_payment_amount,allows_installments,paid",
+          )
+          .order("due_date", { ascending: false }),
+        supabase
+          .from("category_budgets")
+          .select("id,category_label,monthly_limit,alert_threshold")
+          .order("category_label", { ascending: true }),
       ]);
 
       // Mapeia o id de conta Pluggy → nome amigável + tipo (necessário pra interpretar
@@ -266,6 +321,30 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         } as Transaction;
       });
       setTransactions(txs);
+
+      setBills(
+        (billData ?? []).map((b) => ({
+          id: b.id,
+          pluggyBillId: b.pluggy_bill_id,
+          pluggyAccountId: b.pluggy_account_id,
+          pluggyItemId: b.pluggy_item_id,
+          dueDate: b.due_date,
+          totalAmount: b.total_amount !== null ? Number(b.total_amount) : null,
+          totalAmountCurrency: b.total_amount_currency ?? "BRL",
+          minimumPaymentAmount: b.minimum_payment_amount !== null ? Number(b.minimum_payment_amount) : null,
+          allowsInstallments: b.allows_installments,
+          paid: !!b.paid,
+        })),
+      );
+
+      setCategoryBudgets(
+        (budgetData ?? []).map((b) => ({
+          id: b.id,
+          categoryLabel: b.category_label,
+          monthlyLimit: Number(b.monthly_limit),
+          alertThreshold: Number(b.alert_threshold),
+        })),
+      );
     } finally {
       setIsLoading(false);
     }
@@ -289,6 +368,16 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "pluggy_accounts", filter: `user_id=eq.${user.id}` },
+        () => refresh(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "pluggy_bills", filter: `user_id=eq.${user.id}` },
+        () => refresh(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "category_budgets", filter: `user_id=eq.${user.id}` },
         () => refresh(),
       )
       .subscribe();
@@ -449,6 +538,87 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       .sort((a, b) => b.value - a.value);
   }, [cycleTransactions]);
 
+  // Progresso de orçamentos: cruza expensesByCategoryCycle com categoryBudgets.
+  const budgetProgress = useMemo<BudgetProgress[]>(() => {
+    const spentMap = new Map<string, number>();
+    for (const e of expensesByCategoryCycle) {
+      spentMap.set(e.name, e.value);
+    }
+    return categoryBudgets.map((b) => {
+      const spent = spentMap.get(b.categoryLabel) ?? 0;
+      const ratio = b.monthlyLimit > 0 ? spent / b.monthlyLimit : 0;
+      let status: BudgetStatus = "ok";
+      if (ratio >= 1) status = "over";
+      else if (ratio >= b.alertThreshold) status = "alert";
+      return {
+        categoryLabel: b.categoryLabel,
+        spent,
+        limit: b.monthlyLimit,
+        threshold: b.alertThreshold,
+        ratio,
+        status,
+        budgetId: b.id,
+      };
+    });
+  }, [categoryBudgets, expensesByCategoryCycle]);
+
+  const budgetAlerts = useMemo(
+    () => budgetProgress.filter((b) => b.status !== "ok").length,
+    [budgetProgress],
+  );
+
+  // Toast de aviso quando um orçamento entra em alert/over (sem disparar duplicado).
+  useEffect(() => {
+    for (const b of budgetProgress) {
+      const key = `${b.budgetId}:${b.status}`;
+      if (b.status !== "ok" && !alertedBudgetsRef.current.has(key)) {
+        alertedBudgetsRef.current.add(key);
+        if (b.status === "over") {
+          toast.error(`Orçamento de "${b.categoryLabel}" foi estourado.`);
+        } else {
+          toast.warning(`Você atingiu ${(b.ratio * 100).toFixed(0)}% do orçamento de "${b.categoryLabel}".`);
+        }
+      }
+    }
+  }, [budgetProgress]);
+
+  const upsertBudget = useCallback(
+    async (label: string, monthlyLimit: number, alertThreshold: number) => {
+      if (!user) return;
+      const { error } = await supabase
+        .from("category_budgets")
+        .upsert(
+          {
+            user_id: user.id,
+            category_label: label,
+            monthly_limit: monthlyLimit,
+            alert_threshold: alertThreshold,
+          },
+          { onConflict: "user_id,category_label" },
+        );
+      if (error) {
+        console.error("upsertBudget error", error);
+        toast.error("Não foi possível salvar o orçamento.");
+        return;
+      }
+      await refresh();
+    },
+    [user, refresh],
+  );
+
+  const deleteBudget = useCallback(
+    async (id: string) => {
+      const { error } = await supabase.from("category_budgets").delete().eq("id", id);
+      if (error) {
+        console.error("deleteBudget error", error);
+        toast.error("Não foi possível remover o orçamento.");
+        return;
+      }
+      await refresh();
+    },
+    [refresh],
+  );
+
   // Saldo consolidado: contas bancárias somam positivo, cartões (CREDIT) entram
   // como dívida (saldo da fatura aberta é positivo na API → vira negativo aqui).
   const totalBalance = useMemo(() => {
@@ -484,6 +654,12 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     cycleTotals,
     previousCycleTotals,
     expensesByCategoryCycle,
+    bills,
+    categoryBudgets,
+    budgetProgress,
+    budgetAlerts,
+    upsertBudget,
+    deleteBudget,
   };
 
   return <FinanceContext.Provider value={value}>{children}</FinanceContext.Provider>;
