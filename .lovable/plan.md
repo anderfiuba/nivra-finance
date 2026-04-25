@@ -1,156 +1,65 @@
 
-# Plano — Evolução do produto: Categorização, Edição Inline e Ciclo Financeiro
+## Diagnóstico (baseado em dados reais já no banco)
 
-## Contexto e premissas
+Inspecionando `pluggy_transactions` e `pluggy_accounts` do seu usuário, encontrei a raiz dos problemas:
 
-- Mantém **visual atual**, **sidebar**, **rotas existentes** e **lógica das telas já construídas**.
-- Mantém a base **mock** (sem Lovable Cloud nesta rodada). A trilha de segurança/LGPD com backend real continua pendente como trabalho separado, conforme combinado.
-- Estado compartilhado entre telas via **React Context + `localStorage`** (persistência local) — assim Dashboard, Extrato, Categorização Pendente e Configurações leem/escrevem no mesmo lugar e refletem em tempo real.
-- Categorias padronizadas (lista única, usada em todos os selects):
-  `Moradia, Alimentação, Transporte, Compras, Assinaturas, Saúde, Lazer, Educação, Investimentos, Salário, Freelance, Transferências, Outros`.
+| Sintoma na UI | Causa real |
+|---|---|
+| Openai aparece como **R$ 51,52** (valor da fatura), mas extrato mostra **−$10,00 USD** sem conversão consistente | Salvamos `amount = -10.00` (USD) e ignoramos `amountInAccountCurrency = 51.52` (BRL). |
+| Cartão "gold" mostra `-R$ 4.106,91` mas sem **limite (R$ 5.150)** nem **% usado (79.7%)** | Não persistimos `creditData.creditLimit`, `availableCreditLimit`, `balanceDueDate`, `balanceCloseDate`, `minimumPayment`. |
+| "Faturas do mês" não existe | Endpoint `/bills` da Pluggy nunca foi consumido. |
+| Todas as transações caem em "Sem categoria" | A Pluggy já entrega `category` ("Digital services", "Tax on financial operations", "Transfer - PIX"…) mas só lemos quando o usuário define manualmente. |
+| Lista de categorias do select é hardcoded ("Moradia / Alimentação / …") | Deveria vir do endpoint oficial `/categories` da Pluggy (árvore com `id`, `description`, `descriptionTranslated`, `parentId`). |
+| Pagamentos de fatura aparecem como entrada/saída duplicada | Sinal do `amount` em cartão é **invertido manualmente** no `pluggy-sync-data`, mas a Pluggy já entrega o sinal correto (positivo = gasto, negativo = pagamento) — estamos duplicando lógica. |
 
----
+## O que vou fazer (seguindo estritamente a doc oficial)
 
-## 1. Camada de dados e estado global
+### 1. Banco — novas colunas e tabelas
 
-### 1.1 Evoluir `src/data/mockData.ts`
-- Adicionar campos a cada `transaction`:
-  - `pendingType?: "sem_categoria" | "transferencia_suspeita" | "recorrencia_detectada" | "inconsistencia"` (ausente = não pendente)
-  - `confidence?: number` (0–1, para ordenar a fila)
-  - `suggestedCategory?: string` (sugestão da "IA")
-  - `recurrenceGroup?: string` (id do grupo de recorrência detectada)
-- Marcar manualmente ~6–8 transações existentes com pendências variadas para popular a tela.
-- Exportar constante `CATEGORIES: string[]` única, reutilizada no Extrato e na Categorização Pendente.
+**Migration nova:**
 
-### 1.2 Novo `src/contexts/FinanceContext.tsx`
-- Provider que expõe:
-  - `transactions`, `updateCategory(id, category)`, `confirmTransfer(id)`, `markRecurring(id)`, `dismissPending(id)`
-  - `cycleDay: number` (1–28), `setCycleDay(day)`
-  - Selectors derivados (memoizados):
-    - `pendingByType` → contagem por tipo
-    - `pendingList` → lista filtrável e ordenada por prioridade (`inconsistencia` > `sem_categoria` > `transferencia_suspeita` > `recorrencia_detectada`, depois `confidence` asc, depois data desc)
-    - `currentCycleRange` → `{ start: Date, end: Date }` calculado a partir de `cycleDay` (ex.: dia 8 → 09/mês-1 a 08/mês)
-    - `previousCycleRange` → mesmo cálculo do ciclo anterior
-    - `cycleTransactions` → transações dentro do ciclo atual
-    - `cycleTotals` → `{ entradas, saidas, saldo }` do ciclo atual e do anterior (para comparativos %)
-    - `expensesByCategoryCycle` → distribuição recalculada
-- Persistência: `localStorage` para `transactions` (overrides de categoria + dismissals) e `cycleDay`. Hidratação no mount, gravação em `useEffect`.
-- Wrapping: envolver `<AppLayout />` em `App.tsx` com `<FinanceProvider>` (escopo da área autenticada).
+- `pluggy_accounts` ganha: `credit_limit`, `available_credit_limit`, `balance_due_date`, `balance_close_date`, `minimum_payment`, `card_brand`, `card_level`, `card_number_last4`, `bank_overdraft_limit`, `bank_overdraft_used`, `automatically_invested_balance`, `raw_payload jsonb`. Tudo nullable.
+- `pluggy_transactions` ganha: `amount_in_account_currency numeric`, `account_currency text`, `status text` (PENDING|POSTED), `category_id text` (id Pluggy), `category_parent_id text`, `installment_number int`, `total_installments int`, `merchant_name text`, `operation_type text`. RLS já existente cobre.
+- Nova tabela `pluggy_categories` (catálogo global, **sem `user_id`**, leitura pública para `authenticated`): `id text PK`, `description text`, `description_translated text`, `parent_id text`, `parent_description text`. Populada por uma sincronização leve do `/categories`.
+- Nova tabela `pluggy_bills` para faturas de cartão: `id uuid`, `user_id`, `pluggy_bill_id text unique`, `pluggy_account_id text`, `due_date date`, `total_amount numeric`, `total_amount_currency text`, `minimum_payment_amount numeric`, `allows_installments bool`, `paid bool`, `raw_payload jsonb`. RLS `auth.uid() = user_id`.
 
-### 1.3 Novos helpers em `src/lib/format.ts` (ou novo `src/lib/cycle.ts`)
-- `getCycleRange(cycleDay: number, ref: Date): { start, end }`
-- `formatCycleLabel(range)` → ex.: "09 abr — 08 mai"
-- `isWithinCycle(dateISO, range)`
+### 2. Edge Function `pluggy-sync-data` — alinhar 100% com a doc
 
----
+- **Accounts**: persistir `creditData.*` em colunas novas. Para `BANK`, persistir `bankData.overdraftContractedLimit`, `overdraftUsedLimit`, `automaticallyInvestedBalance`. **Remover a inversão manual de balance** para cartão: a Pluggy já documenta que o `balance` de `CREDIT` representa a fatura aberta (dívida). Vamos guardar como vem (positivo) e tratar o sinal **na camada de leitura** baseado em `type === 'CREDIT'`. Isso evita corromper o dado bruto.
+- **Transactions**: salvar `amount` **exatamente como a Pluggy entrega** (com sinal). Doc: para cartão, positivo = gasto, negativo = pagamento. Para conta corrente, `type DEBIT/CREDIT` + sinal já vêm consistentes via Pluggy. Persistir também `amountInAccountCurrency`, `currencyCode` da transação, `status`, `categoryId`, `creditCardMetadata.installmentNumber/totalInstallments`, `merchant.name`, `operationType`.
+- **Categories**: ao primeiro sync (ou via função dedicada `pluggy-sync-categories`), buscar `/categories` e popular `pluggy_categories`. Não depende de usuário (catálogo global).
+- **Bills**: para cada conta `CREDIT_CARD`, buscar `/bills?accountId=...` e gravar em `pluggy_bills`. Tratar paginação igual a transactions.
 
-## 2. Tela "Categorização Pendente" (nova)
+### 3. Frontend — usar dados da Pluggy de verdade
 
-### 2.1 Roteamento e sidebar
-- Nova rota `/app/categorizacao` em `src/App.tsx`.
-- Adicionar item na `AppSidebar.tsx` entre **Extrato Unificado** e **Conexões Open Finance**:
-  - Ícone: `ListChecks` (lucide), título "Categorização Pendente".
-  - Badge numérico ao lado do título com `pendingList.length` quando > 0 (estilo discreto, cor `accent`).
+- **`FinanceContext`**:
+  - Carregar `pluggy_categories` (uma vez por sessão) e expor uma árvore `categoriesTree`. O select passa a ser populado por `descriptionTranslated`, agrupado por categoria pai.
+  - `category` exibido = `category` manual do usuário (override) **OU** `category_pluggy` da Pluggy. Fica "Sem categoria" só quando ambos forem nulos. Isso resolve o problema de "tudo cai em pendência".
+  - `pendingList` filtra transações onde **nem o usuário nem a Pluggy** atribuíram categoria.
+  - Na conversão BRL: se `amountInAccountCurrency` existir e a `currency` da transação ≠ `currency` da conta, usar `amountInAccountCurrency` (já em BRL) para somatórios, mantendo o valor original como referência.
+  - `totalBalance`: somar contas `BANK.balance` − `CREDIT.balance` (cartão é dívida). `availableCreditLimit` exposto separadamente para a UI.
+  - Filtro opcional para excluir `status = 'PENDING'` no consolidado.
 
-### 2.2 Página `src/pages/app/Categorizacao.tsx`
-- Header: título + subtítulo explicando "Fila de revisão para manter seus dados financeiros limpos."
-- **4 cards de resumo** no topo (grid 2x2 mobile, 4 colunas desktop):
-  1. Sem categoria — ícone `HelpCircle`
-  2. Transferências suspeitas — ícone `ArrowLeftRight`
-  3. Recorrências detectadas — ícone `Repeat`
-  4. Possíveis inconsistências — ícone `AlertTriangle`
-  - Cada card mostra contagem + descrição curta + age como filtro (ativo destacado com `ring-2 ring-primary`).
-- **Barra de filtros** abaixo dos cards: "Todos | Sem categoria | Transferências | Recorrências | Inconsistências".
-- **Lista principal** (mesmo padrão visual do Extrato, Card com `divide-y`):
-  - Cada linha mostra: ícone do tipo de pendência, descrição, conta, data, valor, e a **ação contextual** à direita.
-  - Ações por tipo:
-    - `sem_categoria` → `<Select>` de categorias (mesma lista do Extrato) + botão "Salvar".
-    - `transferencia_suspeita` → botões "Confirmar transferência" / "Não é transferência" (segundo apenas remove da fila).
-    - `recorrencia_detectada` → botões "Marcar como recorrente" / "Ignorar".
-    - `inconsistencia` → `<Select>` para corrigir categoria sugerida vs atual + botão "Corrigir".
-  - Quando ação é executada: chama método do `FinanceContext`, item desaparece da fila com `toast` de confirmação ("Categoria atualizada", etc.).
-- Estado vazio: mensagem "Tudo em dia. Nenhuma pendência no momento." com ícone `CheckCircle2`.
+- **Tela `Contas`**: dois grupos visuais — **Cartões de Crédito** (com barra de uso `balance / creditLimit`, % usado, limite total, vencimento `balanceDueDate`) e **Contas Bancárias** (saldo atual). Igual ao screenshot do Visor que você mandou.
 
----
+- **Tela `Extrato`**:
+  - Mostrar valor em BRL (`amountInAccountCurrency` quando estrangeiro), com o valor original abaixo em cinza (`$10.00 USD`), igual ao layout do Visor.
+  - Badge da categoria nativa Pluggy (em PT-BR, via `descriptionTranslated`).
+  - Select de categoria carregado do catálogo Pluggy real (agrupado por pai).
+  - Quando usuário troca categoria → grava em `pluggy_transactions.category` e (futuramente) cria `Category Rule` na Pluggy via endpoint dedicado — fica como TODO comentado nesta etapa, sem implementar.
 
-## 3. Edição inline no Extrato Unificado
+- **Tela `Categorização`**: continua filtrando só "Sem categoria" como você pediu — agora com a regra correta (nem usuário nem Pluggy categorizou). Tendência: lista vai esvaziar drasticamente.
 
-### 3.1 Refatorar `src/pages/app/Extrato.tsx`
-- Substituir o `<Badge>` de categoria por um `<Select>` compacto (variante visual de badge — fundo `secondary/50`, altura ~28px) usando o componente `ui/select.tsx`.
-- Opções vindas de `CATEGORIES`.
-- Ao alterar:
-  - `updateCategory(t.id, novaCategoria)` no contexto.
-  - `toast` discreto: "Categoria atualizada".
-  - Se a transação estava em `pendingList`, ela é automaticamente removida (a regra da fila ignora itens com `pendingType` resolvido).
-- Filtro de categoria existente continua funcionando (lê `CATEGORIES`).
-- Trocar o uso de `transactions` importado direto de `mockData` pelo hook `useFinance()` para garantir reatividade.
+- **Tela `Dashboard`**: gráfico "Principais categorias" passa a usar `category_pluggy` traduzida quando não houver override — então finalmente terá dados reais.
 
-### 3.2 Propagação automática
-- Como Dashboard, Categorização e Extrato consomem o **mesmo Context**, qualquer alteração re-renderiza tudo. Sem trabalho adicional além de garantir que cada tela use `useFinance()`.
+### 4. Limpeza
+- Remover `CATEGORIES` hardcoded em `src/data/mockData.ts` (mantém só `Transaction` interface e `CATEGORY_COLORS` como fallback de cor).
+- Remover a inversão manual de `balance` de cartão em `pluggy-sync-data` (única fonte da verdade: doc Pluggy).
 
----
+### 5. Após deploy
+Você abre **Conexões → Sincronizar**. A função vai reprocessar contas, transações, categorias e faturas. As telas refletem dados corretos imediatamente via Realtime.
 
-## 4. Configuração de Ciclo Financeiro
-
-### 4.1 Atualizar `src/pages/app/Configuracoes.tsx`
-- Novo card "Ciclo financeiro" inserido **antes** do card "Preferências".
-  - Título + descrição: "Defina o dia de fechamento do seu mês financeiro. Útil para alinhar com vencimento de cartão ou contas principais."
-  - Campo: `<Input type="number" min={1} max={28}>` (limitar a 28 para evitar fevereiro problemático) **ou** `<Select>` com dias 1–28. Vou usar **Input numérico** com validação por ser mais ágil.
-  - **Preview dinâmico** abaixo do campo: caixa destacada (`bg-secondary/40 border-border`) mostrando "Período atual: **09 abr — 08 mai**" recalculado em tempo real conforme o usuário digita.
-  - Botão "Salvar" → grava em `FinanceContext` (e `localStorage`) + `toast` "Ciclo financeiro atualizado".
-- Manter Switches existentes (não regredir o que já está lá).
-
-### 4.2 Aplicar o ciclo no Dashboard
-- `src/pages/app/Dashboard.tsx`:
-  - Substituir números fixos dos KPIs ("Entradas no mês: 14.900", etc.) por cálculo a partir de `cycleTotals` do contexto.
-  - Comparativo "% vs período anterior" calculado contra `previousCycleRange`.
-  - Subtítulo do header passa a mostrar o range do ciclo: "Veja sua visão consolidada de **09 abr — 08 mai**."
-  - Gráfico "Despesas por categoria" passa a usar `expensesByCategoryCycle` (recalculado).
-  - Os gráficos `balanceEvolution` e `incomeVsExpense` continuam usando dados mensais agregados do mock (não há histórico granular suficiente para reagrupar 6 meses por ciclo customizado sem inventar dados — fica documentado como limitação do MVP mock; quando vier o backend real, esses recortes também respeitam o ciclo).
-- "Movimentações recentes" passa a listar as últimas 6 do `cycleTransactions`.
-
-### 4.3 Insights coerentes com o ciclo
-- `aiInsights` no mock continua estático nesta rodada (são textos), mas vou adicionar um `cycleLabel` no header da seção: "Insights de **09 abr — 08 mai**" para reforçar o recorte. Geração dinâmica de insights baseada nas categorias editadas fica fora desse escopo (é feature de IA real, próxima fase).
-
----
-
-## 5. Detalhes de UX e consistência visual
-
-- Usar `sonner` (`toast`) já configurado em `App.tsx` para feedbacks.
-- Reaproveitar tokens do design system (`bg-gradient-card`, `border-border`, `text-success`, `text-warning`, `text-accent`, `text-destructive`).
-- Sem novos pacotes — só `lucide-react` (já instalado), `react-router-dom`, `recharts` e shadcn já presentes.
-- Acessibilidade: `<Select>` inline no Extrato com `aria-label="Categoria da transação"`.
-
----
-
-## 6. Arquivos afetados
-
-**Criar**
-- `src/contexts/FinanceContext.tsx`
-- `src/pages/app/Categorizacao.tsx`
-- `src/lib/cycle.ts`
-
-**Editar**
-- `src/data/mockData.ts` — adicionar campos de pendência + `CATEGORIES`
-- `src/App.tsx` — nova rota `/app/categorizacao` + envolver `AppLayout` com `FinanceProvider`
-- `src/components/AppSidebar.tsx` — novo item de menu com badge
-- `src/pages/app/Extrato.tsx` — `<Select>` inline, consumo via `useFinance()`
-- `src/pages/app/Dashboard.tsx` — KPIs e categorias a partir do ciclo
-- `src/pages/app/Configuracoes.tsx` — card "Ciclo financeiro" com preview
-
-**Sem alteração**
-- Telas Contas, Conexões, Planos, Auth, Landing, Layout, todos os `ui/*`.
-
----
-
-## 7. Fora deste escopo (para alinhar expectativa)
-
-- Persistência em backend real / RLS / auditoria → trilha **Segurança LGPD** já combinada, segue separada.
-- IA real para detectar pendências e gerar insights dinâmicos → próxima fase (precisa do backend + Lovable AI Gateway).
-- Reagrupar gráficos de 6 meses por ciclo customizado (limitação do mock, comentada no código).
-
----
-
-## Pronto para implementar
-
-Se aprovar, eu já começo pela **camada de estado (Context + mockData)**, depois **Categorização Pendente**, em seguida **Extrato inline** e por último **Configurações + Dashboard com ciclo**, tudo em uma única passada.
+## O que NÃO vou fazer agora (e por quê)
+- IA de categorização própria — você pediu para não implementar.
+- Criar Category Rules na Pluggy automaticamente — escopo separado, fica como próxima iteração.
+- Tela de faturas detalhada — o backend grava `pluggy_bills`, mas a UI dedicada (`/app/faturas`) fica para iteração seguinte para não inflar este PR. O Dashboard já vai mostrar resumo de fatura aberta usando os dados de `creditData`.
