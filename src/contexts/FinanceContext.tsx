@@ -79,6 +79,12 @@ export interface CategoryBudget {
   alertThreshold: number;
 }
 
+export interface CardCycleSetting {
+  pluggyAccountId: string;
+  closingDay: number | null;
+  dueDay: number | null;
+}
+
 export interface PluggyItemSummary {
   id: string;
   pluggyItemId: string;
@@ -140,6 +146,9 @@ interface FinanceContextValue {
   budgetAlerts: number;
   upsertBudget: (label: string, monthlyLimit: number, alertThreshold: number) => Promise<void>;
   deleteBudget: (id: string) => Promise<void>;
+  // Configuração de ciclos por cartão (manual)
+  cardCycleSettings: Record<string, CardCycleSetting>;
+  upsertCardCycle: (pluggyAccountId: string, closingDay: number, dueDay: number) => Promise<void>;
 }
 
 const FinanceContext = createContext<FinanceContextValue | null>(null);
@@ -183,6 +192,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   const [bills, setBills] = useState<FinanceBill[]>([]);
   const [categoryBudgets, setCategoryBudgets] = useState<CategoryBudget[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [cardCycleSettings, setCardCycleSettings] = useState<Record<string, CardCycleSetting>>({});
   const [cycleDay, setCycleDayState] = useState<number>(() => loadCycleDay());
   const alertedBudgetsRef = React.useRef<Set<string>>(new Set());
 
@@ -193,6 +203,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       setItems([]);
       setBills([]);
       setCategoryBudgets([]);
+      setCardCycleSettings({});
       return;
     }
     setIsLoading(true);
@@ -204,6 +215,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         { data: billData },
         { data: budgetData },
         { data: itemData },
+        { data: cycleData },
       ] = await Promise.all([
         supabase
           .from("pluggy_accounts")
@@ -239,6 +251,9 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
             "id,pluggy_item_id,connector_name,connector_image_url,connector_primary_color,status,last_synced_at,updated_at",
           )
           .order("connector_name", { ascending: true }),
+        supabase
+          .from("card_cycle_settings")
+          .select("pluggy_account_id,closing_day,due_day"),
       ]);
 
       // Index pluggy_items por pluggy_item_id pra resolver logo/cor/sync.
@@ -445,6 +460,16 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           alertThreshold: Number(b.alert_threshold),
         })),
       );
+
+      const cycleMap: Record<string, CardCycleSetting> = {};
+      for (const c of (cycleData ?? [])) {
+        cycleMap[c.pluggy_account_id] = {
+          pluggyAccountId: c.pluggy_account_id,
+          closingDay: c.closing_day !== null ? Number(c.closing_day) : null,
+          dueDay: c.due_day !== null ? Number(c.due_day) : null,
+        };
+      }
+      setCardCycleSettings(cycleMap);
     } finally {
       setIsLoading(false);
     }
@@ -720,6 +745,34 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     [refresh],
   );
 
+  const upsertCardCycle = useCallback(
+    async (pluggyAccountId: string, closingDay: number, dueDay: number) => {
+      if (!user) return;
+      const { error } = await supabase
+        .from("card_cycle_settings")
+        .upsert(
+          {
+            user_id: user.id,
+            pluggy_account_id: pluggyAccountId,
+            closing_day: closingDay,
+            due_day: dueDay,
+          },
+          { onConflict: "user_id,pluggy_account_id" },
+        );
+      if (error) {
+        console.error("upsertCardCycle error", error);
+        toast.error("Não foi possível salvar a configuração do ciclo.");
+        return;
+      }
+      // Atualização otimista local — Pluggy não emite realtime para essa tabela.
+      setCardCycleSettings((prev) => ({
+        ...prev,
+        [pluggyAccountId]: { pluggyAccountId, closingDay, dueDay },
+      }));
+    },
+    [user],
+  );
+
   // Saldo consolidado: contas bancárias somam positivo, cartões (CREDIT) entram
   // como dívida (saldo da fatura aberta é positivo na API → vira negativo aqui).
   const totalBalance = useMemo(() => {
@@ -762,6 +815,8 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     budgetAlerts,
     upsertBudget,
     deleteBudget,
+    cardCycleSettings,
+    upsertCardCycle,
   };
 
   return <FinanceContext.Provider value={value}>{children}</FinanceContext.Provider>;

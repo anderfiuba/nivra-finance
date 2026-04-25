@@ -1,120 +1,103 @@
-## Objetivo
+## Contexto
 
-Refatorar `/app/contas` para seguir o conceito da imagem de referência:
-- Remover o card "Saldo total consolidado".
-- Agrupar em **3 seções colapsáveis**: Cartões de Crédito, Contas Bancárias e Conexões.
-- Cada item do grupo mostra logo do banco, nome, marca/tipo, "há Xh" da última sync, e saldo à direita.
-- Cada grupo tem um rodapé **TOTAL** com barrinha lateral colorida (vermelha p/ cartões, verde p/ contas).
-- Conexões traz o conector com badge "Atualizado" + Nº de contas + botão "Desconectar".
-- Layout 100% legível em mobile (sem sobreposição de informação).
+A página atual mostra **uma fatura por vez** (com seletor de cartão e detalhamento de transações). O PDF mostra uma estrutura **muito diferente**:
 
----
+1. **Topo:** card "Total a pagar" agregando todos os cartões, com breakdown.
+2. **Banner:** convite para informar dias de fechamento/vencimento dos cartões que faltam.
+3. **Ciclos de Faturamento:** uma linha por **ciclo** mostrando estado (`Fechada` / `Ciclo atual` / `Aberta`), valor, datas, contadores. Mistura faturas reais (Pluggy) com **ciclo atual estimado** (somando transações desde o último fechamento).
+4. **Próximas Faturas:** ciclos futuros já com parcelas alocadas.
+5. **Recentemente Pagas:** faturas com status pago/fechado.
 
-## Mudanças propostas
+Decisões confirmadas com você:
+- **Dias de fechamento/vencimento:** Open Finance traz quando disponível (a Pluggy popula `balance_close_date`/`balance_due_date` automaticamente). Para cartões manuais ou quando esses campos vierem `null`, o usuário informa pelo banner.
+- **Recorrentes:** **não exibir** agora — breakdown será só **Parcelas** + **Compras avulsas**.
+- **Pagas:** status vem da Pluggy (`paid=true` ou ciclo já fechado e antigo). Sem inferência manual.
 
-### 1. `src/pages/app/Contas.tsx` — refatoração completa
-- **Remover** o card `Saldo total consolidado` e o uso de `totalBalance`.
-- **Header** simplificado: título "Contas" + botão "Adicionar conta" (mantém atual).
-- Implementar **3 seções colapsáveis** usando `Collapsible` do shadcn (`@/components/ui/collapsible`) para que em mobile o usuário possa fechar grupos:
-  - **Cartões de Crédito** (filtra `type === "CREDIT"`)
-  - **Contas Bancárias** (demais tipos)
-  - **Conexões** (lista de `pluggy_items`, agregando contagem de contas por item)
-- Cada card é branco (usa `bg-card`) com borda fina e cantos arredondados, conforme imagem.
+## Mudanças no banco
 
-### 2. Estrutura de cada item
+### Nova tabela `card_cycle_settings` (migração)
 
-**Cartões:**
+Persiste `closing_day` e `due_day` informados pelo usuário, **com fallback** para os campos da Pluggy quando ausentes.
+
+```sql
+CREATE TABLE public.card_cycle_settings (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  pluggy_account_id text NOT NULL,
+  closing_day smallint CHECK (closing_day BETWEEN 1 AND 28),
+  due_day smallint CHECK (due_day BETWEEN 1 AND 28),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (user_id, pluggy_account_id)
+);
+
+ALTER TABLE public.card_cycle_settings ENABLE ROW LEVEL SECURITY;
+
+-- RLS: SELECT/INSERT/UPDATE/DELETE WHERE auth.uid() = user_id
+-- Trigger update_updated_at_column
 ```
-[logo] gold                                    R$ 4.106,91
-       Nubank                          [████████░░] 79.7%
-       há 5h                           Limite: R$ 5.150,00
-```
-- Logo do banco (vem de `pluggy_items.connector_image_url` / `connector_primary_color`) — buscar via join no contexto (ver item 4).
-- Nome do cartão + marketing/marca + "há Xh" (relativo a `pluggy_items.last_synced_at`).
-- Saldo em vermelho à direita, barra de % de uso, limite abaixo.
-- Mobile: barra ocupa largura total da coluna direita; nome trunca com ellipsis.
 
-**Contas bancárias:**
-```
-[logo] Nu Pagamentos S.A.                      R$ 765,77
-       Nubank                                   Saldo atual
-       há 5h
-```
-- Mesmo layout, sem barra de uso. "Saldo atual" como label cinza abaixo do valor.
-- Caso não tenha logo (ex: "Carteira"), usar ícone genérico (`Wallet`) com fundo cinza.
+## Novos arquivos
 
-**Total do grupo (rodapé do card):**
-```
-| TOTAL                                        -R$ 4.106,91   (vermelho p/ cartões)
-| TOTAL                                         R$ 765,77     (verde p/ contas)
-```
-- Barrinha lateral de 3px (vermelha/verde) + label TOTAL em cinza pequeno + valor à direita.
+### `src/lib/cardCycle.ts` — utilitário puro
+- `resolveCycleDays(account, manualSetting)` → `{ closingDay, dueDay } | null` priorizando manual > Pluggy.
+- `computeCurrentCycleRange(closingDay, ref)` → `{ start, end }` do ciclo aberto.
+- `computeNextDueDate(dueDay, cycleEnd)` → próximo vencimento (regra: se `dueDay >= closingDay`, vence no mesmo mês do fechamento; senão, no mês seguinte).
+- `formatShortDate(date)` → `"08/05"`.
+- `daysUntil(date)` → número de dias até o vencimento.
 
-**Conexões:**
-```
-[logo] Nubank                                  ↻ Desconectar
-       ● Atualizado · 2 contas
-```
-- Badge verde "Atualizado" (mapeia `STATUS_OK` de Conexões.tsx).
-- Texto "X contas" baseado no `count` de `pluggy_accounts` por `pluggy_item_id`.
-- Botão "Desconectar" em vermelho (texto), abrindo o mesmo `AlertDialog` já existente em Conexões → vou extrair a lógica de remoção para reuso (ver item 5).
+### `src/components/faturas/TotalPagarCard.tsx`
+Card grande no topo: valor agregado + linhas Parcelas / Compras avulsas (sem Recorrentes). Recebe lista pré-calculada de "ciclos abertos a pagar" (fatura fechada não-paga + ciclo atual estimado de cada cartão).
 
-### 3. Comportamento mobile
+### `src/components/faturas/ConfigCiclosCard.tsx`
+Banner com lista de cartões **sem** `closingDay`/`dueDay` resolvido. Cada linha tem dois inputs `Select 1-28` para fechamento e vencimento + botão check ✓ que faz upsert em `card_cycle_settings`. Banner desaparece quando todos cartões estão configurados (estado oculto via localStorage para não reabrir após dispensa).
 
-- Seções **colapsáveis** com chevron up/down no canto superior direito (idêntico à imagem).
-- Item layout em `flex` que vira `flex-col` em telas `< sm`:
-  - Logo + bloco de texto na primeira linha.
-  - Bloco de valor (saldo + barra/limite) embaixo, alinhado à direita.
-- Padding reduzido em mobile (`p-4` vs `p-5` desktop).
-- Truncamento de nomes longos com `truncate` + tooltip.
-- Não usar `flex-wrap` que quebra a hierarquia visual; usar grid ou stack vertical em `< sm`.
+### `src/components/faturas/CicloRow.tsx`
+Item visual padrão do PDF: logo do conector + nome do cartão + badge de status (`Fechada`/`Ciclo atual`/`Paga`/`Vencida`) à esquerda; valor à direita; segunda linha com `Ciclo: dd/MM - dd/MM · Venc: dd/MM · Pgto mín: R$ X` + contadores `N parcelas · M compras`; rodapé com timeline simples (data início — data vencimento) e link "Ver transações →" que expande detalhes inline (reusa lógica atual de avulsas/parcelas).
 
-### 4. Carregar metadados de conexões no `FinanceContext`
+### `src/pages/app/Faturas.tsx` — reescrito
+Quatro seções renderizadas em sequência:
+1. `<TotalPagarCard />`
+2. `<ConfigCiclosCard />` (condicional)
+3. **Ciclos de Faturamento** — para cada cartão: (a) última fatura fechada não-paga (se existir) + (b) ciclo atual estimado. Ordenadas por proximidade do vencimento.
+4. **Próximas Faturas** — bills futuras (`due_date > próximo vencimento estimado`) ou ciclos N+1 quando há parcelas alocadas.
+5. **Recentemente Pagas** — bills com `paid=true` OU `due_date < hoje - 7 dias` (versão compacta, sem expansão).
 
-Hoje `FinanceAccount` não traz `connector_image_url`, `connector_primary_color`, `pluggy_item_id` nem `last_synced_at`. Para mostrar logo + "há Xh" sem disparar fetch separado:
+## Mudanças em arquivos existentes
 
-- Adicionar query de `pluggy_items` no `refresh()` do `FinanceContext.tsx` (já carrega tudo paralelamente).
-- Expor novo estado `items: PluggyItem[]` com campos: `pluggy_item_id`, `connector_name`, `connector_image_url`, `connector_primary_color`, `status`, `last_synced_at`.
-- Adicionar `pluggyItemId`, `connectorImageUrl`, `connectorPrimaryColor`, `lastSyncedAt` ao `FinanceAccount` (resolvidos via join em memória pelo `pluggy_item_id` da tabela `pluggy_accounts`).
-- ⚠️ A coluna `pluggy_item_id` já existe em `pluggy_accounts` mas o select atual em `FinanceContext` **não a busca** — precisa adicionar ao `.select(...)`.
+### `src/contexts/FinanceContext.tsx`
+- Buscar `card_cycle_settings` do usuário no `loadAll()` e expor via context (`cardCycleSettings: Record<pluggyAccountId, {closingDay, dueDay}>`).
+- Função `upsertCardCycle(pluggyAccountId, closingDay, dueDay)` para o banner usar.
+- **Sem mudança no realtime** (settings raramente mudam).
 
-### 5. Reutilizar lógica de "Desconectar"
+### `src/integrations/supabase/types.ts`
+Regenerado automaticamente após a migração — não editar manualmente.
 
-Para evitar duplicar a chamada `pluggy-delete-item` + `AlertDialog`:
-- Criar componente `src/components/contas/DisconnectButton.tsx` que recebe `itemId`, `connectorName` e callback `onRemoved`.
-- Usá-lo tanto em `Contas.tsx` (nova página) quanto em `Conexoes.tsx` (refatorar para consumir).
-- Após remoção, chamar `refresh()` do `FinanceContext` para atualizar UI.
+## Lógica de cálculo do "ciclo atual estimado"
 
-### 6. Função utilitária
+Para cada cartão CREDIT:
+1. Resolver `closingDay`/`dueDay` (manual > Pluggy). Se ambos `null` → cartão entra apenas no banner de configuração e **não** aparece em "Ciclos de Faturamento".
+2. `currentCycle = computeCurrentCycleRange(closingDay, hoje)` → janela `[fechamento_anterior+1, próximo_fechamento]`.
+3. Filtrar `transactions` desse `pluggyAccountId` cujo `transaction_date` está em `currentCycle` e `type = 'DEBIT'`.
+4. Total estimado = soma dos `amount` dessas transações **menos** créditos de estorno.
+5. Breakdown: usa `installment_number IS NOT NULL` (banco já tem o campo confiável) → parcelas vs avulsas. Heurística regex atual será **descartada**.
 
-- Reaproveitar `formatRelative()` existente em `Conexoes.tsx` movendo para `src/lib/format.ts` (export `formatRelativeTime`). Usar nas duas páginas.
+## Pontos não resolvidos / ressalvas
 
-### 7. Estado vazio
+- **Ciclo atual ≠ fatura oficial.** Mostrar tooltip "Baseado nas transações do ciclo atual. O valor oficial aparece quando o banco enviar a fatura." (igual PDF).
+- **Cartão `gold` do usuário hoje** tem `balance_close_date = null` mas `balance_due_date = 2026-04-08` → o banner pedirá só o dia de fechamento.
+- **Múltiplos cartões:** layout funciona; testaremos no viewport mobile (375px) garantindo que o valor não quebre embaixo do nome.
+- **"Recentemente Pagas"** ficará pouco populada hoje (Pluggy não marca pago). Listaremos faturas vencidas há mais de 7 dias com tooltip explicativo.
 
-- Se não há cartões: ocultar a seção Cartões (não exibir card vazio).
-- Se não há contas bancárias: ocultar a seção Contas Bancárias.
-- Se não há conexões: mostrar empty state atual (com botão "Conectar primeira conta").
+## Resumo de arquivos
 
----
-
-## Arquivos impactados
+**Novos:**
+- migração SQL `create_card_cycle_settings.sql`
+- `src/lib/cardCycle.ts`
+- `src/components/faturas/TotalPagarCard.tsx`
+- `src/components/faturas/ConfigCiclosCard.tsx`
+- `src/components/faturas/CicloRow.tsx`
 
 **Editados:**
-- `src/pages/app/Contas.tsx` — refatoração completa.
-- `src/contexts/FinanceContext.tsx` — adicionar query de `pluggy_items`, expor `items`, enriquecer `FinanceAccount`.
-- `src/lib/format.ts` — adicionar `formatRelativeTime`.
-- `src/pages/app/Conexoes.tsx` — usar `DisconnectButton` extraído e `formatRelativeTime` compartilhado (sem mudança visual).
-
-**Criados:**
-- `src/components/contas/DisconnectButton.tsx` — botão + AlertDialog reutilizável.
-- `src/components/contas/AccountGroupCard.tsx` — card colapsável com header (título + count) e rodapé TOTAL.
-- `src/components/contas/AccountRow.tsx` — linha individual de conta/cartão (com variant `bank` | `credit`).
-- `src/components/contas/ConnectionRow.tsx` — linha individual de conexão (com badge + botão desconectar).
-
----
-
-## Pontos a confirmar antes de implementar
-
-1. **Logo do banco em "Carteira"** (conta manual sem connector): manter ícone `Wallet` cinza ou esconder?
-2. **Total do grupo Cartões**: mostrar como negativo (`-R$ 4.106,91` em vermelho, como na imagem) ou positivo (valor da dívida em vermelho sem sinal)?
-3. **Cor do header** dos cards (Cartões/Contas/Conexões): seguir a imagem (fundo branco/cinza claro) ou manter o `bg-gradient-card` atual do app dark?
+- `src/contexts/FinanceContext.tsx`
+- `src/pages/app/Faturas.tsx` (reescrita completa)

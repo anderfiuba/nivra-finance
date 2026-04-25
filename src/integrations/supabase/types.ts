@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      card_cycle_settings: {
+        Row: {
+          closing_day: number | null
+          created_at: string
+          due_day: number | null
+          id: string
+          pluggy_account_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          closing_day?: number | null
+          created_at?: string
+          due_day?: number | null
+          id?: string
+          pluggy_account_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          closing_day?: number | null
+          created_at?: string
+          due_day?: number | null
+          id?: string
+          pluggy_account_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       category_budgets: {
         Row: {
           alert_threshold: number
