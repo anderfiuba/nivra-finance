@@ -88,10 +88,11 @@ const PAGE_SIZE = 500;
 async function fetchAllTransactions(accountId: string): Promise<PluggyTransaction[]> {
   const all: PluggyTransaction[] = [];
   let page = 1;
-  // Pega últimos 90 dias por padrão (Pluggy sandbox/produção)
+  // Pega últimos 12 meses (Pluggy permite até 12m por padrão na produção).
   const to = new Date();
   const from = new Date();
-  from.setDate(from.getDate() - 90);
+  from.setMonth(from.getMonth() - 12);
+  from.setDate(from.getDate() - 1); // pequena margem
   const fromStr = from.toISOString().slice(0, 10);
   const toStr = to.toISOString().slice(0, 10);
 
@@ -106,7 +107,7 @@ async function fetchAllTransactions(accountId: string): Promise<PluggyTransactio
     all.push(...(data.results ?? []));
     if (page >= (data.totalPages ?? 1)) break;
     page += 1;
-    if (page > 20) break; // safety
+    if (page > 60) break; // safety — 60 páginas × 500 = 30k tx para 12 meses
   }
   return all;
 }
