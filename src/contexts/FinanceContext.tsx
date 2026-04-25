@@ -745,6 +745,34 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     [refresh],
   );
 
+  const upsertCardCycle = useCallback(
+    async (pluggyAccountId: string, closingDay: number, dueDay: number) => {
+      if (!user) return;
+      const { error } = await supabase
+        .from("card_cycle_settings")
+        .upsert(
+          {
+            user_id: user.id,
+            pluggy_account_id: pluggyAccountId,
+            closing_day: closingDay,
+            due_day: dueDay,
+          },
+          { onConflict: "user_id,pluggy_account_id" },
+        );
+      if (error) {
+        console.error("upsertCardCycle error", error);
+        toast.error("Não foi possível salvar a configuração do ciclo.");
+        return;
+      }
+      // Atualização otimista local — Pluggy não emite realtime para essa tabela.
+      setCardCycleSettings((prev) => ({
+        ...prev,
+        [pluggyAccountId]: { pluggyAccountId, closingDay, dueDay },
+      }));
+    },
+    [user],
+  );
+
   // Saldo consolidado: contas bancárias somam positivo, cartões (CREDIT) entram
   // como dívida (saldo da fatura aberta é positivo na API → vira negativo aqui).
   const totalBalance = useMemo(() => {
@@ -787,6 +815,8 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     budgetAlerts,
     upsertBudget,
     deleteBudget,
+    cardCycleSettings,
+    upsertCardCycle,
   };
 
   return <FinanceContext.Provider value={value}>{children}</FinanceContext.Provider>;
