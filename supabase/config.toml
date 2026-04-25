@@ -17,3 +17,6 @@ verify_jwt = true
 
 [functions.pluggy-sync-categories]
 verify_jwt = true
+
+[functions.pluggy-delete-item]
+verify_jwt = true
