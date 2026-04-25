@@ -1,107 +1,282 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  AlertCircle,
-  ArrowDownRight,
-  CalendarClock,
-  CheckCircle2,
-  CreditCard,
-  RefreshCcw,
-} from "lucide-react";
+import { CreditCard } from "lucide-react";
 import { Link } from "react-router-dom";
-import { useFinance, type FinanceBill } from "@/contexts/FinanceContext";
-import { formatBRL, formatDate } from "@/lib/format";
+import { useFinance } from "@/contexts/FinanceContext";
+import {
+  computeCurrentCycleWindow,
+  computeNextCycleWindow,
+  daysUntil,
+  formatDueLabel,
+  formatShortDate,
+  formatShortDateFromIso,
+  resolveCycleDays,
+  type CycleDays,
+  type CycleWindow,
+} from "@/lib/cardCycle";
+import { TotalPagarCard } from "@/components/faturas/TotalPagarCard";
+import { ConfigCiclosCard } from "@/components/faturas/ConfigCiclosCard";
+import { CicloRow, type CicloStatus } from "@/components/faturas/CicloRow";
+import type { FinanceAccount, FinanceBill } from "@/contexts/FinanceContext";
+import type { Transaction } from "@/data/mockData";
 
 /**
- * Faturas — detalhamento mês a mês dos cartões de crédito conectados via Pluggy.
+ * Faturas — visão consolidada de todos os cartões, no formato do PDF de
+ * referência. Estrutura:
+ *  1. Total a pagar (agregado, breakdown Parcelas/Compras avulsas).
+ *  2. Banner de configuração de fechamento/vencimento (cartões pendentes).
+ *  3. Ciclos de Faturamento (uma linha por ciclo aberto/fechado).
+ *  4. Próximas Faturas.
+ *  5. Recentemente Pagas.
  *
- * Fontes (todas reais, sem mock):
- *  - pluggy_accounts (type = CREDIT) → cartão, brand, last4, limite e vencimento.
- *  - pluggy_bills → faturas (mensais) com vencimento, total, mínimo, status.
- *  - pluggy_transactions → composição da fatura (compras avulsas vs parcelas).
- *
- * Associação fatura ↔ transações: a Pluggy não vincula bill_id à transação
- * em todos os conectores, então agrupamos pela janela
- * [bill anterior.due_date, bill atual.due_date]. Na ausência de bill anterior,
- * usamos os últimos 30 dias antes do vencimento.
+ * Fontes (reais, via Pluggy):
+ *  - pluggy_accounts (type=CREDIT)
+ *  - pluggy_bills (faturas mensais)
+ *  - pluggy_transactions (composição do ciclo)
+ *  - card_cycle_settings (override manual quando Pluggy não traz datas)
  */
 
-function billStatus(bill: FinanceBill): { label: string; tone: "ok" | "open" | "late" } {
-  if (bill.paid) return { label: "Paga", tone: "ok" };
-  if (!bill.dueDate) return { label: "Aberta", tone: "open" };
-  const due = new Date(bill.dueDate + "T00:00:00");
-  if (due.getTime() < Date.now()) return { label: "Vencida", tone: "late" };
-  return { label: "Aberta", tone: "open" };
+const installmentRegex = /\b(\d{1,2})\s*\/\s*(\d{1,2})\b/;
+const DISMISS_KEY = "nivra:faturas:configDismissed:v1";
+
+function isInstallmentTx(t: Transaction): boolean {
+  if (t.installmentNumber !== null && t.totalInstallments !== null && t.totalInstallments > 1) {
+    return true;
+  }
+  return installmentRegex.test(t.description);
 }
 
-function daysUntil(dateStr: string | null): number | null {
-  if (!dateStr) return null;
-  const d = new Date(dateStr + "T00:00:00").getTime();
-  return Math.ceil((d - Date.now()) / (1000 * 60 * 60 * 24));
+/**
+ * Filtra transações de DESPESA (saída) do cartão dentro de uma janela.
+ * Pagamentos de fatura (CREDIT) são ignorados — eles zeram o saldo, não compõem fatura.
+ */
+function txsInWindow(
+  all: Transaction[],
+  pluggyAccountId: string,
+  start: Date,
+  end: Date,
+): Transaction[] {
+  const s = start.getTime();
+  const e = end.getTime();
+  return all.filter((t) => {
+    if (t.pluggyAccountId !== pluggyAccountId) return false;
+    if (t.type !== "saida") return false;
+    const td = new Date(t.date).getTime();
+    return td >= s && td <= e;
+  });
+}
+
+/** Soma de despesas (compras + parcelas) de um conjunto. */
+function sumExpenses(txs: Transaction[]): number {
+  return txs.reduce((a, t) => a + Math.abs(t.value), 0);
+}
+
+function dueTone(date: Date): "muted" | "warning" | "danger" {
+  const d = daysUntil(date);
+  if (d < 0 || d <= 3) return "danger";
+  if (d <= 7) return "warning";
+  return "muted";
+}
+
+interface OpenItem {
+  account: FinanceAccount;
+  status: CicloStatus;
+  amount: number;
+  cycleLabel: string;
+  dueLabel: string;
+  startLabel: string;
+  endLabel: string;
+  dueDate: Date;
+  minimumPayment: number | null;
+  txs: Transaction[];
+  installmentCount: number;
+  oneOffCount: number;
+  installmentTotal: number;
+  oneOffTotal: number;
+  showEstimateNotice: boolean;
+  bill?: FinanceBill;
+  /** Sort key (proximidade do vencimento). */
+  sortKey: number;
 }
 
 const Faturas = () => {
-  const { accounts, bills, transactions } = useFinance();
+  const { accounts, bills, transactions, cardCycleSettings } = useFinance();
+
+  const [dismissedConfig, setDismissedConfig] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem(DISMISS_KEY) === "1";
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(DISMISS_KEY, dismissedConfig ? "1" : "0");
+  }, [dismissedConfig]);
 
   const creditAccounts = useMemo(
     () => accounts.filter((a) => (a.type ?? "").toUpperCase() === "CREDIT"),
     [accounts],
   );
 
-  const [selectedAccountId, setSelectedAccountId] = useState<string>(
-    () => creditAccounts[0]?.id ?? "",
+  /**
+   * Para cada cartão, resolve dias do ciclo (manual > Pluggy). Cartões sem
+   * resolução vão para o banner de configuração.
+   */
+  const accountsWithDays = useMemo(() => {
+    return creditAccounts.map((acc) => {
+      const setting = cardCycleSettings[acc.pluggyAccountId] ?? null;
+      const days = resolveCycleDays(acc, setting);
+      return { account: acc, days };
+    });
+  }, [creditAccounts, cardCycleSettings]);
+
+  const pendingConfigAccounts = useMemo(
+    () => accountsWithDays.filter((x) => !x.days).map((x) => x.account),
+    [accountsWithDays],
   );
 
-  // Sincroniza seleção quando contas chegam pelo realtime.
-  if (!selectedAccountId && creditAccounts.length > 0) {
-    setTimeout(() => setSelectedAccountId(creditAccounts[0].id), 0);
-  }
+  /**
+   * Constrói os "ciclos abertos a pagar" para cada cartão configurado:
+   *  - Se existe fatura FECHADA não-paga (due >= hoje - 7d) → entra como "fechada".
+   *  - Sempre adiciona o ciclo ATUAL estimado pelas transações.
+   */
+  const openItems = useMemo<OpenItem[]>(() => {
+    const now = new Date();
+    const items: OpenItem[] = [];
 
-  const selectedAccount = creditAccounts.find((a) => a.id === selectedAccountId) ?? null;
+    for (const { account, days } of accountsWithDays) {
+      if (!days) continue;
+      const current = computeCurrentCycleWindow(days, now);
 
-  const accountBills = useMemo(() => {
-    if (!selectedAccount) return [];
+      // Janela do ciclo anterior (já fechado) — última fatura emitida.
+      const prevRef = new Date(current.start.getTime() - 24 * 60 * 60 * 1000);
+      const previous = computeCurrentCycleWindow(days, prevRef);
+
+      // Procura uma bill emitida pela Pluggy cujo dueDate corresponde ao
+      // vencimento do ciclo anterior. Tolerância: mesmo mês.
+      const matchingBill = findBillForDue(bills, account.pluggyAccountId, previous.dueDate);
+
+      if (matchingBill && !matchingBill.paid) {
+        const bTxs = txsInWindow(transactions, account.pluggyAccountId, previous.start, previous.closingDate);
+        const installs = bTxs.filter(isInstallmentTx);
+        const oneOffs = bTxs.filter((t) => !isInstallmentTx(t));
+        const due = matchingBill.dueDate
+          ? new Date(matchingBill.dueDate + "T00:00:00")
+          : previous.dueDate;
+        const isLate = daysUntil(due) < 0;
+        items.push({
+          account,
+          status: isLate ? "vencida" : "fechada",
+          amount: matchingBill.totalAmount ?? sumExpenses(bTxs),
+          cycleLabel: `${formatShortDate(previous.start)} - ${formatShortDate(previous.closingDate)}`,
+          dueLabel: formatShortDateFromIso(matchingBill.dueDate),
+          startLabel: formatShortDate(previous.closingDate),
+          endLabel: formatShortDateFromIso(matchingBill.dueDate),
+          dueDate: due,
+          minimumPayment: matchingBill.minimumPaymentAmount,
+          txs: bTxs,
+          installmentCount: installs.length,
+          oneOffCount: oneOffs.length,
+          installmentTotal: sumExpenses(installs),
+          oneOffTotal: sumExpenses(oneOffs),
+          showEstimateNotice: false,
+          bill: matchingBill,
+          sortKey: due.getTime(),
+        });
+      }
+
+      // Ciclo atual estimado (sempre adicionado).
+      const cTxs = txsInWindow(transactions, account.pluggyAccountId, current.start, now);
+      const installs = cTxs.filter(isInstallmentTx);
+      const oneOffs = cTxs.filter((t) => !isInstallmentTx(t));
+      items.push({
+        account,
+        status: "atual",
+        amount: sumExpenses(cTxs),
+        cycleLabel: `${formatShortDate(current.start)} - ${formatShortDate(current.closingDate)}`,
+        dueLabel: formatShortDate(current.dueDate),
+        startLabel: formatShortDate(now),
+        endLabel: formatShortDate(current.dueDate),
+        dueDate: current.dueDate,
+        minimumPayment: null,
+        txs: cTxs,
+        installmentCount: installs.length,
+        oneOffCount: oneOffs.length,
+        installmentTotal: sumExpenses(installs),
+        oneOffTotal: sumExpenses(oneOffs),
+        showEstimateNotice: true,
+        sortKey: current.dueDate.getTime(),
+      });
+    }
+
+    return items.sort((a, b) => a.sortKey - b.sortKey);
+  }, [accountsWithDays, bills, transactions]);
+
+  /** Próximas faturas: ciclo N+1 (já com parcelas alocadas). */
+  const upcomingItems = useMemo<OpenItem[]>(() => {
+    const items: OpenItem[] = [];
+    for (const { account, days } of accountsWithDays) {
+      if (!days) continue;
+      const current = computeCurrentCycleWindow(days, new Date());
+      const next = computeNextCycleWindow(days, current);
+      const txs = txsInWindow(transactions, account.pluggyAccountId, next.start, next.closingDate);
+      // Só mostra próxima se existirem parcelas/compras já alocadas.
+      if (txs.length === 0) continue;
+      const installs = txs.filter(isInstallmentTx);
+      const oneOffs = txs.filter((t) => !isInstallmentTx(t));
+      items.push({
+        account,
+        status: "proxima",
+        amount: sumExpenses(txs),
+        cycleLabel: `${formatShortDate(next.start)} - ${formatShortDate(next.closingDate)}`,
+        dueLabel: formatShortDate(next.dueDate),
+        startLabel: formatShortDate(next.start),
+        endLabel: formatShortDate(next.dueDate),
+        dueDate: next.dueDate,
+        minimumPayment: null,
+        txs,
+        installmentCount: installs.length,
+        oneOffCount: oneOffs.length,
+        installmentTotal: sumExpenses(installs),
+        oneOffTotal: sumExpenses(oneOffs),
+        showEstimateNotice: true,
+        sortKey: next.dueDate.getTime(),
+      });
+    }
+    return items.sort((a, b) => a.sortKey - b.sortKey);
+  }, [accountsWithDays, transactions]);
+
+  /** Recentemente pagas: bills com paid=true OU venceram há mais de 7 dias. */
+  const paidItems = useMemo(() => {
+    const now = Date.now();
     return bills
-      .filter((b) => b.pluggyAccountId === selectedAccount.pluggyAccountId)
-      .sort((a, b) => (b.dueDate ?? "").localeCompare(a.dueDate ?? ""));
-  }, [bills, selectedAccount]);
+      .filter((b) => {
+        if (b.paid) return true;
+        if (!b.dueDate) return false;
+        const due = new Date(b.dueDate + "T00:00:00").getTime();
+        return now - due > 7 * 24 * 60 * 60 * 1000;
+      })
+      .sort((a, b) => (b.dueDate ?? "").localeCompare(a.dueDate ?? ""))
+      .slice(0, 6)
+      .map((bill) => {
+        const account = creditAccounts.find((a) => a.pluggyAccountId === bill.pluggyAccountId);
+        return account ? { bill, account } : null;
+      })
+      .filter((x): x is { bill: FinanceBill; account: FinanceAccount } => x !== null);
+  }, [bills, creditAccounts]);
 
-  const [selectedBillId, setSelectedBillId] = useState<string | null>(null);
-  const activeBill = useMemo(() => {
-    if (selectedBillId) return accountBills.find((b) => b.id === selectedBillId) ?? null;
-    return accountBills[0] ?? null;
-  }, [selectedBillId, accountBills]);
-
-  // Janela de transações da fatura ativa.
-  const billTxs = useMemo(() => {
-    if (!selectedAccount || !activeBill || !activeBill.dueDate) return [];
-    const sortedAsc = [...accountBills].sort((a, b) =>
-      (a.dueDate ?? "").localeCompare(b.dueDate ?? ""),
-    );
-    const idx = sortedAsc.findIndex((b) => b.id === activeBill.id);
-    const previous = idx > 0 ? sortedAsc[idx - 1] : null;
-    const end = new Date(activeBill.dueDate + "T23:59:59");
-    const start = previous?.dueDate
-      ? new Date(previous.dueDate + "T00:00:00")
-      : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
-    return transactions.filter((t) => {
-      if (t.pluggyAccountId !== selectedAccount.pluggyAccountId) return false;
-      const td = new Date(t.date).getTime();
-      return td > start.getTime() && td <= end.getTime();
-    });
-  }, [selectedAccount, activeBill, accountBills, transactions]);
-
-  // O tipo Transaction não carrega installmentNumber; usamos heurística por
-  // descrição: padrão "x/y" indica parcela. Sem o padrão, é compra avulsa.
-  // procuramos padrão "x/y" no description; se ausente, é avulsa.
-  const installmentRegex = /\b(\d{1,2})\s*\/\s*(\d{1,2})\b/;
-  const compras = billTxs.filter((t) => !installmentRegex.test(t.description));
-  const parcelas = billTxs.filter((t) => installmentRegex.test(t.description));
+  /** Total a pagar = soma dos itens "abertos" (fechada não-paga + ciclo atual). */
+  const totals = useMemo(() => {
+    let total = 0;
+    let installments = 0;
+    let oneOff = 0;
+    for (const it of openItems) {
+      total += it.amount;
+      installments += it.installmentTotal;
+      oneOff += it.oneOffTotal;
+    }
+    return { total, installments, oneOff };
+  }, [openItems]);
 
   // Estado vazio (sem cartões conectados).
   if (creditAccounts.length === 0) {
@@ -125,263 +300,130 @@ const Faturas = () => {
     );
   }
 
-  const limit = selectedAccount?.creditLimit ?? null;
-  const available = selectedAccount?.availableCreditLimit ?? null;
-  const used = limit !== null && available !== null ? Math.max(0, limit - available) : null;
-  const usedRatio = limit && limit > 0 && used !== null ? Math.min(100, (used / limit) * 100) : 0;
+  const showConfig = pendingConfigAccounts.length > 0 && !dismissedConfig;
 
   return (
     <div className="p-6 md:p-8 space-y-6 max-w-[1600px] mx-auto">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-foreground tracking-tight">Faturas</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Detalhamento mês a mês das faturas dos seus cartões — dados sincronizados via Open Finance.
-          </p>
-        </div>
-        <Select value={selectedAccountId} onValueChange={(v) => { setSelectedAccountId(v); setSelectedBillId(null); }}>
-          <SelectTrigger className="w-72 bg-input border-border">
-            <SelectValue placeholder="Selecione um cartão" />
-          </SelectTrigger>
-          <SelectContent>
-            {creditAccounts.map((a) => (
-              <SelectItem key={a.id} value={a.id}>
-                {a.marketingName || a.name}
-                {a.cardNumberLast4 ? ` •••• ${a.cardNumberLast4}` : ""}
-              </SelectItem>
+      <div>
+        <h1 className="text-2xl md:text-3xl font-bold text-foreground tracking-tight">Faturas</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Visão consolidada — fatura fechada, ciclo atual estimado e próximas faturas dos seus cartões.
+        </p>
+      </div>
+
+      {/* 1. Total a pagar */}
+      <TotalPagarCard
+        total={totals.total}
+        installments={totals.installments}
+        oneOff={totals.oneOff}
+        message={
+          openItems.length === 0
+            ? "Sem cobranças pendentes neste momento."
+            : "Inclui faturas fechadas e estimativas dos ciclos atuais."
+        }
+      />
+
+      {/* 2. Banner de configuração */}
+      {showConfig && (
+        <ConfigCiclosCard
+          pendingAccounts={pendingConfigAccounts}
+          onDismiss={() => setDismissedConfig(true)}
+        />
+      )}
+
+      {/* 3. Ciclos de Faturamento */}
+      {openItems.length > 0 && (
+        <section>
+          <h2 className="text-lg font-bold text-foreground tracking-tight">Ciclos de Faturamento</h2>
+          <Card className="mt-3 bg-gradient-card border-border overflow-hidden divide-y divide-border">
+            {openItems.map((it, idx) => (
+              <CicloRow
+                key={`${it.account.id}-${it.status}-${idx}`}
+                account={it.account}
+                status={it.status}
+                amount={it.amount}
+                cycleLabel={it.cycleLabel}
+                dueLabel={it.dueLabel}
+                startLabel={it.startLabel}
+                endLabel={it.endLabel}
+                minimumPayment={it.minimumPayment}
+                installmentCount={it.installmentCount}
+                oneOffCount={it.oneOffCount}
+                showEstimateNotice={it.showEstimateNotice}
+                dueStatusText={formatDueLabel(it.dueDate)}
+                dueStatusTone={dueTone(it.dueDate)}
+                transactions={it.txs}
+              />
             ))}
-          </SelectContent>
-        </Select>
-      </div>
+          </Card>
+        </section>
+      )}
 
-      {/* Cards de resumo */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="bg-gradient-card border-border p-5">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <CreditCard className="h-3.5 w-3.5" /> Fatura atual
-          </div>
-          <p className="mt-3 text-2xl font-bold text-foreground tabular-nums">
-            {activeBill?.totalAmount !== null && activeBill?.totalAmount !== undefined
-              ? formatBRL(activeBill.totalAmount)
-              : selectedAccount
-                ? formatBRL(selectedAccount.balance)
-                : "—"}
-          </p>
-          {activeBill?.minimumPaymentAmount !== null && activeBill?.minimumPaymentAmount !== undefined && (
-            <p className="mt-1 text-xs text-muted-foreground">
-              Pagamento mínimo: {formatBRL(activeBill.minimumPaymentAmount)}
-            </p>
-          )}
-        </Card>
+      {/* 4. Próximas Faturas */}
+      {upcomingItems.length > 0 && (
+        <section>
+          <h2 className="text-lg font-bold text-foreground tracking-tight">Próximas Faturas</h2>
+          <Card className="mt-3 bg-gradient-card border-border overflow-hidden divide-y divide-border">
+            {upcomingItems.map((it, idx) => (
+              <CicloRow
+                key={`upcoming-${it.account.id}-${idx}`}
+                account={it.account}
+                status={it.status}
+                amount={it.amount}
+                cycleLabel={it.cycleLabel}
+                dueLabel={it.dueLabel}
+                startLabel={it.startLabel}
+                endLabel={it.endLabel}
+                minimumPayment={it.minimumPayment}
+                installmentCount={it.installmentCount}
+                oneOffCount={it.oneOffCount}
+                showEstimateNotice={it.showEstimateNotice}
+                dueStatusText={formatDueLabel(it.dueDate)}
+                dueStatusTone={dueTone(it.dueDate)}
+                transactions={it.txs}
+              />
+            ))}
+          </Card>
+        </section>
+      )}
 
-        <Card className="bg-gradient-card border-border p-5">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <RefreshCcw className="h-3.5 w-3.5" /> Limite utilizado
-          </div>
-          <p className="mt-3 text-2xl font-bold text-foreground tabular-nums">
-            {used !== null ? formatBRL(used) : "—"}
-            {limit !== null && (
-              <span className="text-sm text-muted-foreground font-normal"> / {formatBRL(limit)}</span>
-            )}
-          </p>
-          <Progress value={usedRatio} className="mt-3 h-1.5" />
-          {available !== null && (
-            <p className="mt-2 text-xs text-muted-foreground">Disponível: {formatBRL(available)}</p>
-          )}
-        </Card>
-
-        <Card className="bg-gradient-card border-border p-5">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <CalendarClock className="h-3.5 w-3.5" /> Próximo vencimento
-          </div>
-          {(() => {
-            const due = activeBill?.dueDate ?? selectedAccount?.balanceDueDate ?? null;
-            const days = daysUntil(due);
-            return (
-              <>
-                <p className="mt-3 text-2xl font-bold text-foreground tabular-nums">
-                  {due ? formatDate(due) : "—"}
-                </p>
-                {days !== null && (
-                  <p
-                    className={`mt-1 text-xs ${
-                      days < 0
-                        ? "text-destructive"
-                        : days <= 3
-                          ? "text-destructive"
-                          : days <= 7
-                            ? "text-warning"
-                            : "text-muted-foreground"
-                    }`}
-                  >
-                    {days < 0
-                      ? `Vencida há ${Math.abs(days)} ${Math.abs(days) === 1 ? "dia" : "dias"}`
-                      : days === 0
-                        ? "Vence hoje"
-                        : `Em ${days} ${days === 1 ? "dia" : "dias"}`}
-                  </p>
-                )}
-              </>
-            );
-          })()}
-        </Card>
-      </div>
-
-      {/* Histórico de faturas */}
-      <Card className="bg-gradient-card border-border overflow-hidden">
-        <div className="p-5 border-b border-border">
-          <h2 className="text-base font-semibold text-foreground">Histórico</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">Selecione uma fatura para ver o detalhamento.</p>
-        </div>
-        {accountBills.length === 0 ? (
-          <div className="p-12 text-center text-sm text-muted-foreground">
-            Nenhuma fatura sincronizada ainda. Aguarde a próxima sincronização ou
-            {" "}<Link to="/app/conexoes" className="text-primary hover:underline">acione manualmente</Link>.
-          </div>
-        ) : (
-          <div className="divide-y divide-border">
-            {accountBills.map((b) => {
-              const status = billStatus(b);
-              const isActive = (activeBill?.id ?? "") === b.id;
-              return (
-                <button
-                  key={b.id}
-                  onClick={() => setSelectedBillId(b.id)}
-                  className={`w-full text-left p-4 md:p-5 hover:bg-secondary/30 transition-smooth flex items-center gap-4 ${
-                    isActive ? "bg-secondary/40" : ""
-                  }`}
-                >
-                  <div className="h-10 w-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
-                    <CreditCard className="h-4 w-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-foreground">
-                      Fatura • Vencimento {b.dueDate ? formatDate(b.dueDate) : "—"}
-                    </p>
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      <Badge
-                        variant="outline"
-                        className={`text-[10px] h-5 ${
-                          status.tone === "ok"
-                            ? "border-success/30 bg-success/10 text-success"
-                            : status.tone === "late"
-                              ? "border-destructive/30 bg-destructive/10 text-destructive"
-                              : "border-warning/30 bg-warning/10 text-warning"
-                        }`}
-                      >
-                        {status.tone === "ok" ? (
-                          <CheckCircle2 className="h-3 w-3 mr-1" />
-                        ) : (
-                          <AlertCircle className="h-3 w-3 mr-1" />
-                        )}
-                        {status.label}
-                      </Badge>
-                      {b.minimumPaymentAmount !== null && (
-                        <span className="text-xs text-muted-foreground">
-                          Mínimo {formatBRL(b.minimumPaymentAmount)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <p className="text-sm font-semibold text-foreground shrink-0 tabular-nums">
-                    {b.totalAmount !== null ? formatBRL(b.totalAmount) : "—"}
-                  </p>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </Card>
-
-      {/* Detalhamento da fatura ativa */}
-      {activeBill && (
-        <Card className="bg-gradient-card border-border overflow-hidden">
-          <div className="p-5 border-b border-border">
-            <h2 className="text-base font-semibold text-foreground">
-              Detalhamento • {activeBill.dueDate ? formatDate(activeBill.dueDate) : "Fatura aberta"}
-            </h2>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {billTxs.length} {billTxs.length === 1 ? "lançamento" : "lançamentos"} no período.
-            </p>
-          </div>
-
-          <div className="p-4 md:p-5">
-            <Tabs defaultValue="avulsas">
-              <TabsList>
-                <TabsTrigger value="avulsas">Compras avulsas ({compras.length})</TabsTrigger>
-                <TabsTrigger value="parcelas">Parcelas ({parcelas.length})</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="avulsas" className="mt-4">
-                {compras.length === 0 ? (
-                  <p className="p-6 text-center text-sm text-muted-foreground">
-                    Sem compras avulsas neste período.
-                  </p>
-                ) : (
-                  <div className="divide-y divide-border">
-                    {compras.map((t) => (
-                      <div key={t.id} className="flex items-center gap-4 py-3">
-                        <div className="h-9 w-9 rounded-lg bg-destructive/10 text-destructive flex items-center justify-center shrink-0">
-                          <ArrowDownRight className="h-4 w-4" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-foreground truncate">{t.description}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {t.category || "Sem categoria"} · {formatDate(t.date)}
-                          </p>
-                        </div>
-                        <p className="text-sm font-semibold text-destructive shrink-0">
-                          −{formatBRL(t.value)}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </TabsContent>
-
-              <TabsContent value="parcelas" className="mt-4">
-                {parcelas.length === 0 ? (
-                  <p className="p-6 text-center text-sm text-muted-foreground">
-                    Sem parcelas neste período.
-                  </p>
-                ) : (
-                  <div className="divide-y divide-border">
-                    {parcelas.map((t) => {
-                      const m = t.description.match(installmentRegex);
-                      const inst = m ? `${m[1]}/${m[2]}` : null;
-                      return (
-                        <div key={t.id} className="flex items-center gap-4 py-3">
-                          <div className="h-9 w-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
-                            <RefreshCcw className="h-4 w-4" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-foreground truncate">{t.description}</p>
-                            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                              {inst && (
-                                <Badge variant="outline" className="text-[10px] h-5 border-border bg-secondary/50">
-                                  Parcela {inst}
-                                </Badge>
-                              )}
-                              <span className="text-xs text-muted-foreground">
-                                {t.category || "Sem categoria"} · {formatDate(t.date)}
-                              </span>
-                            </div>
-                          </div>
-                          <p className="text-sm font-semibold text-destructive shrink-0">
-                            −{formatBRL(t.value)}
-                          </p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </TabsContent>
-            </Tabs>
-          </div>
-        </Card>
+      {/* 5. Recentemente Pagas */}
+      {paidItems.length > 0 && (
+        <section>
+          <h2 className="text-lg font-bold text-foreground tracking-tight">Recentemente Pagas</h2>
+          <Card className="mt-3 bg-gradient-card border-border overflow-hidden divide-y divide-border">
+            {paidItems.map(({ bill, account }) => (
+              <CicloRow
+                key={bill.id}
+                account={account}
+                status="paga"
+                amount={bill.totalAmount}
+                installmentCount={0}
+                oneOffCount={0}
+                compact
+              />
+            ))}
+          </Card>
+        </section>
       )}
     </div>
   );
 };
+
+/** Procura uma bill cuja due_date bate com o ciclo (mesmo mês/ano). */
+function findBillForDue(
+  bills: FinanceBill[],
+  pluggyAccountId: string,
+  targetDue: Date,
+): FinanceBill | undefined {
+  const ty = targetDue.getFullYear();
+  const tm = targetDue.getMonth();
+  return bills.find((b) => {
+    if (b.pluggyAccountId !== pluggyAccountId || !b.dueDate) return false;
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(b.dueDate);
+    if (!m) return false;
+    return Number(m[1]) === ty && Number(m[2]) - 1 === tm;
+  });
+}
 
 export default Faturas;
