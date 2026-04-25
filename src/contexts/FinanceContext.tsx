@@ -25,6 +25,8 @@ export interface FinanceAccount {
   id: string;
   /** ID na Pluggy (chave usada por bills/transactions). */
   pluggyAccountId: string;
+  /** ID Pluggy do item (conector) ao qual a conta pertence. */
+  pluggyItemId: string | null;
   name: string;
   marketingName: string | null;
   type: string | null;
@@ -39,6 +41,14 @@ export interface FinanceAccount {
   cardBrand: string | null;
   cardNumberLast4: string | null;
   currency: string;
+  /** Logo do conector (vinda de pluggy_items). */
+  connectorImageUrl: string | null;
+  /** Cor primária do conector (hex sem #). */
+  connectorPrimaryColor: string | null;
+  /** Nome do conector (banco). */
+  connectorName: string | null;
+  /** Última sincronização do item ao qual essa conta pertence. */
+  lastSyncedAt: string | null;
 }
 
 export interface PluggyCategoryNode {
@@ -69,6 +79,18 @@ export interface CategoryBudget {
   alertThreshold: number;
 }
 
+export interface PluggyItemSummary {
+  id: string;
+  pluggyItemId: string;
+  connectorName: string;
+  connectorImageUrl: string | null;
+  connectorPrimaryColor: string | null;
+  status: string | null;
+  lastSyncedAt: string | null;
+  /** Número de contas vinculadas a este item. */
+  accountCount: number;
+}
+
 export type BudgetStatus = "ok" | "alert" | "over";
 export interface BudgetProgress {
   categoryLabel: string;
@@ -83,6 +105,7 @@ export interface BudgetProgress {
 interface FinanceContextValue {
   transactions: Transaction[];
   accounts: FinanceAccount[];
+  items: PluggyItemSummary[];
   totalBalance: number;
   isLoading: boolean;
   refresh: () => Promise<void>;
@@ -155,6 +178,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
+  const [items, setItems] = useState<PluggyItemSummary[]>([]);
   const [categories, setCategories] = useState<PluggyCategoryNode[]>([]);
   const [bills, setBills] = useState<FinanceBill[]>([]);
   const [categoryBudgets, setCategoryBudgets] = useState<CategoryBudget[]>([]);
@@ -166,17 +190,25 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     if (!user) {
       setTransactions([]);
       setAccounts([]);
+      setItems([]);
       setBills([]);
       setCategoryBudgets([]);
       return;
     }
     setIsLoading(true);
     try {
-      const [{ data: accData }, { data: txData }, { data: catData }, { data: billData }, { data: budgetData }] = await Promise.all([
+      const [
+        { data: accData },
+        { data: txData },
+        { data: catData },
+        { data: billData },
+        { data: budgetData },
+        { data: itemData },
+      ] = await Promise.all([
         supabase
           .from("pluggy_accounts")
           .select(
-            "id,pluggy_account_id,name,marketing_name,type,subtype,balance,currency,credit_limit,available_credit_limit,balance_due_date,balance_close_date,minimum_payment,card_brand,card_number_last4",
+            "id,pluggy_account_id,pluggy_item_id,name,marketing_name,type,subtype,balance,currency,credit_limit,available_credit_limit,balance_due_date,balance_close_date,minimum_payment,card_brand,card_number_last4",
           )
           .order("name", { ascending: true }),
         supabase
@@ -201,12 +233,38 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           .from("category_budgets")
           .select("id,category_label,monthly_limit,alert_threshold")
           .order("category_label", { ascending: true }),
+        supabase
+          .from("pluggy_items")
+          .select(
+            "id,pluggy_item_id,connector_name,connector_image_url,connector_primary_color,status,last_synced_at,updated_at",
+          )
+          .order("connector_name", { ascending: true }),
       ]);
+
+      // Index pluggy_items por pluggy_item_id pra resolver logo/cor/sync.
+      type ItemMeta = {
+        connectorName: string;
+        connectorImageUrl: string | null;
+        connectorPrimaryColor: string | null;
+        status: string | null;
+        lastSyncedAt: string | null;
+      };
+      const itemMap = new Map<string, ItemMeta>();
+      for (const it of (itemData ?? [])) {
+        itemMap.set(it.pluggy_item_id, {
+          connectorName: it.connector_name,
+          connectorImageUrl: it.connector_image_url,
+          connectorPrimaryColor: it.connector_primary_color,
+          status: it.status,
+          lastSyncedAt: it.last_synced_at ?? it.updated_at ?? null,
+        });
+      }
 
       // Mapeia o id Pluggy da conta → nome amigável + tipo (necessário pra interpretar
       // o sinal de transações de cartão). Transações e bills referenciam pelo id Pluggy.
       type AccMeta = { name: string; type: string | null; tag: string | null };
       const accountMap = new Map<string, AccMeta>();
+      const accountsByItem = new Map<string, number>();
       const accs: FinanceAccount[] = (accData ?? []).map((a) => {
         const last4 = a.card_number_last4 ?? null;
         accountMap.set(a.pluggy_account_id, {
@@ -214,9 +272,14 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           type: a.type,
           tag: last4 ? `••${last4}` : null,
         });
+        if (a.pluggy_item_id) {
+          accountsByItem.set(a.pluggy_item_id, (accountsByItem.get(a.pluggy_item_id) ?? 0) + 1);
+        }
+        const itemMeta = a.pluggy_item_id ? itemMap.get(a.pluggy_item_id) ?? null : null;
         return {
           id: a.id,
           pluggyAccountId: a.pluggy_account_id,
+          pluggyItemId: a.pluggy_item_id ?? null,
           name: a.marketing_name || a.name,
           marketingName: a.marketing_name ?? null,
           type: a.type,
@@ -230,9 +293,26 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           cardBrand: a.card_brand,
           cardNumberLast4: a.card_number_last4,
           currency: a.currency,
+          connectorImageUrl: itemMeta?.connectorImageUrl ?? null,
+          connectorPrimaryColor: itemMeta?.connectorPrimaryColor ?? null,
+          connectorName: itemMeta?.connectorName ?? null,
+          lastSyncedAt: itemMeta?.lastSyncedAt ?? null,
         };
       });
       setAccounts(accs);
+
+      setItems(
+        (itemData ?? []).map((it) => ({
+          id: it.id,
+          pluggyItemId: it.pluggy_item_id,
+          connectorName: it.connector_name,
+          connectorImageUrl: it.connector_image_url,
+          connectorPrimaryColor: it.connector_primary_color,
+          status: it.status,
+          lastSyncedAt: it.last_synced_at ?? it.updated_at ?? null,
+          accountCount: accountsByItem.get(it.pluggy_item_id) ?? 0,
+        })),
+      );
 
       setCategories(
         (catData ?? []).map((c) => ({
@@ -653,6 +733,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   const value: FinanceContextValue = {
     transactions,
     accounts,
+    items,
     totalBalance,
     isLoading,
     refresh,
