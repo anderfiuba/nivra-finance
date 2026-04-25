@@ -67,7 +67,7 @@ const Faturas = () => {
   const accountBills = useMemo(() => {
     if (!selectedAccount) return [];
     return bills
-      .filter((b) => b.pluggyAccountId === selectedAccount.id)
+      .filter((b) => b.pluggyAccountId === selectedAccount.pluggyAccountId)
       .sort((a, b) => (b.dueDate ?? "").localeCompare(a.dueDate ?? ""));
   }, [bills, selectedAccount]);
 
@@ -90,7 +90,7 @@ const Faturas = () => {
       ? new Date(previous.dueDate + "T00:00:00")
       : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
     return transactions.filter((t) => {
-      if (t.account !== (selectedAccount.marketingName || selectedAccount.name)) return false;
+      if (t.pluggyAccountId !== selectedAccount.pluggyAccountId) return false;
       const td = new Date(t.date).getTime();
       return td > start.getTime() && td <= end.getTime();
     });
