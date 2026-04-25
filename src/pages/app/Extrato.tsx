@@ -2,20 +2,30 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowDownRight, ArrowUpRight, Download, Filter, Search } from "lucide-react";
+import { Download, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useFinance } from "@/contexts/FinanceContext";
-import { formatBRL, formatDate } from "@/lib/format";
 import { toast } from "sonner";
+import { lastNMonths, monthKeyOf, currentMonthBucket } from "@/lib/months";
+import { MonthSelector } from "@/components/extrato/MonthSelector";
+import { MonthSummaryCard } from "@/components/extrato/MonthSummaryCard";
+import { TransactionRow } from "@/components/extrato/TransactionRow";
+
+const PAGE_INCREMENT = 100;
 
 const Extrato = () => {
   const { transactions, categories, updateCategory } = useFinance();
+  const [monthKey, setMonthKey] = useState<string>(() => currentMonthBucket().key);
   const [search, setSearch] = useState("");
   const [account, setAccount] = useState("all");
   const [category, setCategory] = useState("all");
+  const [visibleCount, setVisibleCount] = useState(PAGE_INCREMENT);
+
+  // 12 meses fixos (mesmo que ainda não haja dados em alguns) — Pluggy entrega 12m.
+  const months = useMemo(() => lastNMonths(12), []);
 
   const accountOptions = useMemo(
-    () => Array.from(new Set(transactions.map((t) => t.account))),
+    () => Array.from(new Set(transactions.map((t) => t.account))).sort(),
     [transactions],
   );
 
@@ -27,150 +37,140 @@ const Extrato = () => {
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [categories]);
 
-  const categoryFilterOptions = useMemo(
-    () => parentCategories.map((p) => p.label),
-    [parentCategories],
+  // Transações do mês selecionado (sem outros filtros) — base para o resumo.
+  const monthTransactions = useMemo(
+    () => transactions.filter((t) => monthKeyOf(t.date) === monthKey),
+    [transactions, monthKey],
   );
 
+  const monthTotals = useMemo(() => {
+    let entradas = 0;
+    let saidas = 0;
+    for (const t of monthTransactions) {
+      if (t.type === "entrada") entradas += t.value;
+      else saidas += t.value;
+    }
+    return { count: monthTransactions.length, entradas, saidas };
+  }, [monthTransactions]);
+
+  // Aplica busca/conta/categoria sobre as transações do mês.
   const filtered = useMemo(() => {
-    return transactions.filter((t) => {
-      if (search && !t.description.toLowerCase().includes(search.toLowerCase())) return false;
+    const q = search.trim().toLowerCase();
+    return monthTransactions.filter((t) => {
+      if (q && !t.description.toLowerCase().includes(q)) return false;
       if (account !== "all" && t.account !== account) return false;
       if (category !== "all" && t.category !== category) return false;
       return true;
     });
-  }, [transactions, search, account, category]);
+  }, [monthTransactions, search, account, category]);
+
+  const visible = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
 
   const handleChangeCategory = (id: string, label: string) => {
     updateCategory(id, label);
     toast.success("Categoria atualizada");
   };
 
+  const handleMonthChange = (key: string) => {
+    setMonthKey(key);
+    setVisibleCount(PAGE_INCREMENT);
+  };
+
   return (
-    <div className="p-6 md:p-8 space-y-6 max-w-[1600px] mx-auto">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-foreground tracking-tight">Extrato Unificado</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Todas as movimentações de todas as contas em uma única visão. Edite a categoria direto na lista.
+    <div className="p-4 md:p-8 space-y-4 md:space-y-6 max-w-[1600px] mx-auto">
+      {/* Cabeçalho */}
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="min-w-0">
+          <h1 className="text-xl md:text-3xl font-bold text-foreground tracking-tight">Extrato</h1>
+          <p className="mt-1 text-xs md:text-sm text-muted-foreground">
+            Histórico de até 12 meses. Toque em uma transação para ver detalhes.
           </p>
         </div>
-        <Button variant="outline">
+        <Button variant="outline" size="sm" className="hidden md:inline-flex">
           <Download className="h-4 w-4 mr-2" /> Exportar
         </Button>
       </div>
 
-      <Card className="bg-gradient-card border-border p-4">
-        <div className="flex flex-col lg:flex-row gap-3">
+      {/* Seletor de mês + resumo */}
+      <div className="space-y-3 md:space-y-4">
+        <div className="flex items-center justify-between gap-2">
+          <MonthSelector months={months} value={monthKey} onChange={handleMonthChange} />
+        </div>
+        <MonthSummaryCard
+          count={monthTotals.count}
+          entradas={monthTotals.entradas}
+          saidas={monthTotals.saidas}
+        />
+      </div>
+
+      {/* Filtros (busca + conta + categoria) */}
+      <Card className="bg-gradient-card border-border p-3 md:p-4">
+        <div className="flex flex-col md:flex-row gap-2 md:gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Buscar por descrição..."
-              className="pl-9 bg-input border-border h-10"
+              className="pl-9 bg-input border-border h-9 md:h-10"
             />
           </div>
-          <Select value={account} onValueChange={setAccount}>
-            <SelectTrigger className="w-full lg:w-48 bg-input border-border">
-              <SelectValue placeholder="Conta" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas as contas</SelectItem>
-              {accountOptions.map((a) => (
-                <SelectItem key={a} value={a}>
-                  {a}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={category} onValueChange={setCategory}>
-            <SelectTrigger className="w-full lg:w-48 bg-input border-border">
-              <SelectValue placeholder="Categoria" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas categorias</SelectItem>
-              {categoryFilterOptions.map((c) => (
-                <SelectItem key={c} value={c}>
-                  {c}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button variant="outline" size="icon" className="shrink-0">
-            <Filter className="h-4 w-4" />
-          </Button>
+          <div className="flex gap-2">
+            <Select value={account} onValueChange={setAccount}>
+              <SelectTrigger className="flex-1 md:w-48 bg-input border-border h-9 md:h-10">
+                <SelectValue placeholder="Conta" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas as contas</SelectItem>
+                {accountOptions.map((a) => (
+                  <SelectItem key={a} value={a}>{a}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={category} onValueChange={setCategory}>
+              <SelectTrigger className="flex-1 md:w-48 bg-input border-border h-9 md:h-10">
+                <SelectValue placeholder="Categoria" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas categorias</SelectItem>
+                {parentCategories.map((c) => (
+                  <SelectItem key={c.id} value={c.label}>{c.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </Card>
 
+      {/* Lista de transações */}
       <Card className="bg-gradient-card border-border overflow-hidden">
         <div className="divide-y divide-border">
-          {filtered.length === 0 && (
-            <div className="p-12 text-center text-sm text-muted-foreground">
-              Nenhuma transação encontrada com os filtros aplicados.
+          {filtered.length === 0 ? (
+            <div className="p-10 md:p-12 text-center text-sm text-muted-foreground">
+              Nenhuma transação para este mês com os filtros aplicados.
             </div>
+          ) : (
+            visible.map((t) => (
+              <TransactionRow
+                key={t.id}
+                tx={t}
+                parentCategories={parentCategories}
+                onChangeCategory={handleChangeCategory}
+              />
+            ))
           )}
-          {filtered.map((t) => (
-            <div
-              key={t.id}
-              className="flex items-center gap-4 p-4 hover:bg-secondary/30 transition-smooth"
-            >
-              <div
-                className={`h-10 w-10 rounded-lg flex items-center justify-center shrink-0 ${
-                  t.type === "entrada" ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"
-                }`}
-              >
-                {t.type === "entrada" ? (
-                  <ArrowUpRight className="h-4 w-4" />
-                ) : (
-                  <ArrowDownRight className="h-4 w-4" />
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-foreground truncate">{t.description}</p>
-                <div className="flex items-center gap-2 mt-1.5">
-                  <Select
-                    value={t.category || ""}
-                    onValueChange={(v) => handleChangeCategory(t.id, v)}
-                  >
-                    <SelectTrigger
-                      className="h-7 px-2 text-xs w-auto min-w-[140px] bg-secondary/50 border-border hover:border-primary/40 transition-smooth"
-                      aria-label="Categoria da transação"
-                    >
-                      <SelectValue placeholder="Sem categoria" />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-80">
-                      {parentCategories.length === 0 ? (
-                        <SelectItem value="__none" disabled>Carregando categorias…</SelectItem>
-                      ) : (
-                        parentCategories.map((it) => (
-                          <SelectItem key={it.id} value={it.label}>{it.label}</SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
-                  <span className="text-xs text-muted-foreground">{t.account}</span>
-                </div>
-              </div>
-              <div className="text-right shrink-0">
-                <p
-                  className={`text-sm font-semibold ${
-                    t.type === "entrada" ? "text-success" : "text-destructive"
-                  }`}
-                >
-                  {t.type === "entrada" ? "+" : "−"}
-                  {formatBRL(t.value)}
-                </p>
-                {t.originalCurrency && t.originalAmount !== undefined && (
-                  <p className="text-[10px] text-muted-foreground mt-0.5">
-                    {Math.abs(t.originalAmount).toFixed(2)} {t.originalCurrency}
-                  </p>
-                )}
-                <p className="text-xs text-muted-foreground mt-0.5">{formatDate(t.date)}</p>
-              </div>
-            </div>
-          ))}
         </div>
+        {filtered.length > visible.length && (
+          <div className="p-3 border-t border-border flex justify-center">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setVisibleCount((c) => c + PAGE_INCREMENT)}
+            >
+              Carregar mais ({filtered.length - visible.length} restantes)
+            </Button>
+          </div>
+        )}
       </Card>
     </div>
   );
