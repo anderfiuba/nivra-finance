@@ -135,7 +135,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         supabase
           .from("pluggy_transactions")
           .select(
-            "id,description,amount,amount_in_account_currency,currency,account_currency,transaction_date,category,category_pluggy,category_id,pluggy_account_id,status,operation_type,merchant_name,installment_number,total_installments",
+            "id,description,amount,amount_in_account_currency,currency,account_currency,transaction_date,category,category_pluggy,category_id,pluggy_account_id,status,operation_type,merchant_name,installment_number,total_installments,type",
           )
           .order("transaction_date", { ascending: false })
           .limit(1000),
