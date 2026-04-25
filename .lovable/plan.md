@@ -1,115 +1,120 @@
 ## Objetivo
-Reformular o **Extrato Unificado** para:
-1. Trazer **12 meses** de histórico da Pluggy (hoje só puxamos 90 dias).
-2. Permitir **filtrar por mês** com um seletor de meses.
-3. Mostrar um **resumo do mês** (Entradas, Saídas, Resultado) — como na imagem 1.
-4. Otimizar a UI mobile com **card compacto + expansão de detalhes** — como na imagem 2 (e não como o atual da imagem 3, onde texto se sobrepõe).
 
-Dados e padrões da Pluggy/UI atuais foram preservados — não inventamos campos nem mudamos a semântica de `amount`/`type`/`category`.
+Refatorar `/app/contas` para seguir o conceito da imagem de referência:
+- Remover o card "Saldo total consolidado".
+- Agrupar em **3 seções colapsáveis**: Cartões de Crédito, Contas Bancárias e Conexões.
+- Cada item do grupo mostra logo do banco, nome, marca/tipo, "há Xh" da última sync, e saldo à direita.
+- Cada grupo tem um rodapé **TOTAL** com barrinha lateral colorida (vermelha p/ cartões, verde p/ contas).
+- Conexões traz o conector com badge "Atualizado" + Nº de contas + botão "Desconectar".
+- Layout 100% legível em mobile (sem sobreposição de informação).
 
 ---
 
-## 1. Backend — Sync de 12 meses (`supabase/functions/pluggy-sync-data/index.ts`)
+## Mudanças propostas
 
-A doc da Pluggy permite até 12 meses de transações por padrão (`from`/`to` no `/transactions`). Hoje o `fetchAllTransactions` está fixo em 90 dias.
+### 1. `src/pages/app/Contas.tsx` — refatoração completa
+- **Remover** o card `Saldo total consolidado` e o uso de `totalBalance`.
+- **Header** simplificado: título "Contas" + botão "Adicionar conta" (mantém atual).
+- Implementar **3 seções colapsáveis** usando `Collapsible` do shadcn (`@/components/ui/collapsible`) para que em mobile o usuário possa fechar grupos:
+  - **Cartões de Crédito** (filtra `type === "CREDIT"`)
+  - **Contas Bancárias** (demais tipos)
+  - **Conexões** (lista de `pluggy_items`, agregando contagem de contas por item)
+- Cada card é branco (usa `bg-card`) com borda fina e cantos arredondados, conforme imagem.
 
-**Mudança:**
-```ts
-// Antes: from.setDate(from.getDate() - 90);
-// Depois:
-const from = new Date();
-from.setMonth(from.getMonth() - 12);
-from.setDate(from.getDate() - 1); // pequena margem
+### 2. Estrutura de cada item
+
+**Cartões:**
 ```
-- Aumenta o `safety` de páginas (`page > 20` → `page > 60`) para acomodar usuários com alto volume.
-- Mantém o resto idêntico (paginação, upsert, preservação de `category` manual).
-- Sem mudança em schema; a tabela `pluggy_transactions` já guarda o que precisamos.
-
-**Reprocessar dados existentes:** após o deploy, sugerir ao usuário tocar em "Sincronizar agora" em **Conexões** para repuxar o histórico de 12 meses.
-
----
-
-## 2. Contexto — não truncar a 1000 (`src/contexts/FinanceContext.tsx`)
-
-Hoje a query traz `.limit(1000)` — pode cortar se um usuário tiver muitas transações em 12 meses.
-
-**Mudança:**
-- Subir limite para `5000` (cobre praticamente todos os casos para 12 meses; Supabase aceita até 1000 por padrão mas o `limit()` explícito sobrepõe).
-- Manter ordenação por `transaction_date desc`.
-
-Sem outras mudanças no contexto — o `effectiveCategory`, totais do ciclo, etc. permanecem.
-
----
-
-## 3. Utilitário de mês calendário (`src/lib/months.ts` — novo)
-
-Pequena função para gerar a lista dos últimos 12 meses calendário e formatar o label PT-BR ("Abr 25", "Mar 25"…).
-
-```ts
-export interface MonthBucket { key: string; label: string; year: number; month: number; start: Date; end: Date; }
-export function lastNMonths(n: number, ref = new Date()): MonthBucket[] { /* ... */ }
-export function monthKeyOf(iso: string): string { /* "YYYY-MM" */ }
+[logo] gold                                    R$ 4.106,91
+       Nubank                          [████████░░] 79.7%
+       há 5h                           Limite: R$ 5.150,00
 ```
+- Logo do banco (vem de `pluggy_items.connector_image_url` / `connector_primary_color`) — buscar via join no contexto (ver item 4).
+- Nome do cartão + marketing/marca + "há Xh" (relativo a `pluggy_items.last_synced_at`).
+- Saldo em vermelho à direita, barra de % de uso, limite abaixo.
+- Mobile: barra ocupa largura total da coluna direita; nome trunca com ellipsis.
 
-Usado só pelo Extrato — Dashboard/Orçamentos continuam com `cycleDay` (ciclo de fatura).
+**Contas bancárias:**
+```
+[logo] Nu Pagamentos S.A.                      R$ 765,77
+       Nubank                                   Saldo atual
+       há 5h
+```
+- Mesmo layout, sem barra de uso. "Saldo atual" como label cinza abaixo do valor.
+- Caso não tenha logo (ex: "Carteira"), usar ícone genérico (`Wallet`) com fundo cinza.
+
+**Total do grupo (rodapé do card):**
+```
+| TOTAL                                        -R$ 4.106,91   (vermelho p/ cartões)
+| TOTAL                                         R$ 765,77     (verde p/ contas)
+```
+- Barrinha lateral de 3px (vermelha/verde) + label TOTAL em cinza pequeno + valor à direita.
+
+**Conexões:**
+```
+[logo] Nubank                                  ↻ Desconectar
+       ● Atualizado · 2 contas
+```
+- Badge verde "Atualizado" (mapeia `STATUS_OK` de Conexões.tsx).
+- Texto "X contas" baseado no `count` de `pluggy_accounts` por `pluggy_item_id`.
+- Botão "Desconectar" em vermelho (texto), abrindo o mesmo `AlertDialog` já existente em Conexões → vou extrair a lógica de remoção para reuso (ver item 5).
+
+### 3. Comportamento mobile
+
+- Seções **colapsáveis** com chevron up/down no canto superior direito (idêntico à imagem).
+- Item layout em `flex` que vira `flex-col` em telas `< sm`:
+  - Logo + bloco de texto na primeira linha.
+  - Bloco de valor (saldo + barra/limite) embaixo, alinhado à direita.
+- Padding reduzido em mobile (`p-4` vs `p-5` desktop).
+- Truncamento de nomes longos com `truncate` + tooltip.
+- Não usar `flex-wrap` que quebra a hierarquia visual; usar grid ou stack vertical em `< sm`.
+
+### 4. Carregar metadados de conexões no `FinanceContext`
+
+Hoje `FinanceAccount` não traz `connector_image_url`, `connector_primary_color`, `pluggy_item_id` nem `last_synced_at`. Para mostrar logo + "há Xh" sem disparar fetch separado:
+
+- Adicionar query de `pluggy_items` no `refresh()` do `FinanceContext.tsx` (já carrega tudo paralelamente).
+- Expor novo estado `items: PluggyItem[]` com campos: `pluggy_item_id`, `connector_name`, `connector_image_url`, `connector_primary_color`, `status`, `last_synced_at`.
+- Adicionar `pluggyItemId`, `connectorImageUrl`, `connectorPrimaryColor`, `lastSyncedAt` ao `FinanceAccount` (resolvidos via join em memória pelo `pluggy_item_id` da tabela `pluggy_accounts`).
+- ⚠️ A coluna `pluggy_item_id` já existe em `pluggy_accounts` mas o select atual em `FinanceContext` **não a busca** — precisa adicionar ao `.select(...)`.
+
+### 5. Reutilizar lógica de "Desconectar"
+
+Para evitar duplicar a chamada `pluggy-delete-item` + `AlertDialog`:
+- Criar componente `src/components/contas/DisconnectButton.tsx` que recebe `itemId`, `connectorName` e callback `onRemoved`.
+- Usá-lo tanto em `Contas.tsx` (nova página) quanto em `Conexoes.tsx` (refatorar para consumir).
+- Após remoção, chamar `refresh()` do `FinanceContext` para atualizar UI.
+
+### 6. Função utilitária
+
+- Reaproveitar `formatRelative()` existente em `Conexoes.tsx` movendo para `src/lib/format.ts` (export `formatRelativeTime`). Usar nas duas páginas.
+
+### 7. Estado vazio
+
+- Se não há cartões: ocultar a seção Cartões (não exibir card vazio).
+- Se não há contas bancárias: ocultar a seção Contas Bancárias.
+- Se não há conexões: mostrar empty state atual (com botão "Conectar primeira conta").
 
 ---
 
-## 4. Refatoração do Extrato (`src/pages/app/Extrato.tsx`)
-
-### 4.1 Seletor de mês (filtro principal)
-- Substituir o título por uma **linha de cabeçalho com `<Select>`** "Abr 25" + chips de navegação "‹ ›" para ir para mês anterior/próximo.
-- Default: mês atual.
-- Lista construída a partir dos próprios dados (`monthKeyOf(t.date)`) limitada a 12 meses.
-- Filtros existentes (busca, conta, categoria) **continuam**, apenas reorganizados.
-
-### 4.2 Card de resumo do mês (como imagem 1)
-Componente novo `MonthSummaryCard` exibido logo abaixo do seletor:
-- Linha única em mobile: `📋 N  ↓ R$ Entradas  ↑ R$ Saídas  ↕ ResultadoColorido`
-- Versão desktop: 4 mini-cards.
-- Calculado em `useMemo` filtrando `transactions` pelo bucket do mês selecionado.
-- Cores: verde para entradas/saldo positivo, vermelho para saídas/saldo negativo (já temos `text-success` / `text-destructive`).
-
-### 4.3 Lista de transações — card mobile expansível (como imagem 2)
-Hoje a row tem `<Select>` de categoria + nome da conta + valor + data num único `flex` que estoura em 390 px.
-
-**Novo layout mobile** (`< md`):
-- Substituir a row por um **`<button>` linha clicável** com:
-  - Ícone redondo da categoria (cor do `CATEGORY_COLORS`) à esquerda.
-  - Coluna principal: descrição (1 linha truncada) + linha secundária `Categoria · ****1077` (small, muted).
-  - À direita: **valor** em fonte semibold (vermelho/verde) + **data curta** (`24/04 21:52`) embaixo.
-  - Sem `<Select>` visível na row — fica enxuto.
-- Ao tocar, **expande inline** (Collapsible) revelando:
-  - Conta completa + número
-  - Categoria (aí sim com `<Select>` para editar)
-  - Status (Pendente/Confirmada — vem de `t.status`)
-  - Parcela `2/3` se `installment_number`/`total_installments` existirem
-  - Merchant (`merchant_name`) se houver
-  - Valor original em moeda estrangeira se `originalCurrency` existir (já mapeado).
-- Em desktop (`≥ md`) mantemos uma versão tabular semelhante à atual, mas com as mesmas correções (descrição truncada, conta no lugar certo).
-
-### 4.4 Estado vazio + paginação leve
-- Se o mês selecionado não tem transações: mensagem "Nenhuma transação em Abr 25" com sugestão de trocar de mês.
-- Render incremental simples: mostrar 100 itens iniciais + botão "Carregar mais" se passar disso (evita travar o mobile com listas grandes).
-
----
-
-## 5. Arquivos afetados
+## Arquivos impactados
 
 **Editados:**
-- `supabase/functions/pluggy-sync-data/index.ts` — janela de 90d → 12 meses.
-- `src/contexts/FinanceContext.tsx` — `.limit(1000)` → `.limit(5000)`.
-- `src/pages/app/Extrato.tsx` — refatorado conforme acima.
+- `src/pages/app/Contas.tsx` — refatoração completa.
+- `src/contexts/FinanceContext.tsx` — adicionar query de `pluggy_items`, expor `items`, enriquecer `FinanceAccount`.
+- `src/lib/format.ts` — adicionar `formatRelativeTime`.
+- `src/pages/app/Conexoes.tsx` — usar `DisconnectButton` extraído e `formatRelativeTime` compartilhado (sem mudança visual).
 
 **Criados:**
-- `src/lib/months.ts` — utilitário de buckets mensais.
-- `src/components/extrato/MonthSelector.tsx` — seletor + setas.
-- `src/components/extrato/MonthSummaryCard.tsx` — entradas/saídas/resultado.
-- `src/components/extrato/TransactionRow.tsx` — row mobile expansível (e variante desktop).
-
-Sem migração de banco. Sem mudança de schema. Sem novos secrets.
+- `src/components/contas/DisconnectButton.tsx` — botão + AlertDialog reutilizável.
+- `src/components/contas/AccountGroupCard.tsx` — card colapsável com header (título + count) e rodapé TOTAL.
+- `src/components/contas/AccountRow.tsx` — linha individual de conta/cartão (com variant `bank` | `credit`).
+- `src/components/contas/ConnectionRow.tsx` — linha individual de conexão (com badge + botão desconectar).
 
 ---
 
-## 6. Pós-deploy
-Após aplicar, basta o usuário entrar em **Conexões → Sincronizar agora** para que o backfill de 12 meses seja gravado. As transações antigas de 90 dias permanecem (upsert por `pluggy_transaction_id`).
+## Pontos a confirmar antes de implementar
+
+1. **Logo do banco em "Carteira"** (conta manual sem connector): manter ícone `Wallet` cinza ou esconder?
+2. **Total do grupo Cartões**: mostrar como negativo (`-R$ 4.106,91` em vermelho, como na imagem) ou positivo (valor da dívida em vermelho sem sinal)?
+3. **Cor do header** dos cards (Cartões/Contas/Conexões): seguir a imagem (fundo branco/cinza claro) ou manter o `bg-gradient-card` atual do app dark?
