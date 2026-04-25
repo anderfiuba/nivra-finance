@@ -117,14 +117,10 @@ const Categorizacao = () => {
     return [...withBudget, ...expensesOnly].sort((a, b) => b.spent - a.spent);
   }, [budgetProgress, expensesByCategoryCycle]);
 
-  const allCategoryLabels = useMemo(() => {
-    const set = new Set<string>();
-    for (const [, items] of groupedCategories) {
-      for (const it of items) set.add(it.label);
-    }
-    for (const e of expensesByCategoryCycle) set.add(e.name);
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [groupedCategories, expensesByCategoryCycle]);
+  // Lista para o seletor do dialog: categorias-pai (agregam filhas) +
+  // filhas (rótulo específico). Por padrão sugerimos a pai, cujo orçamento
+  // soma todas as filhas via `budgetProgress` no FinanceContext.
+  // O label do pai é o próprio nome da chave em `groupedCategories`.
 
   const openBudgetDialog = (label: string | null) => {
     setBudgetDialogLabel(label);
@@ -387,14 +383,28 @@ const Categorizacao = () => {
                 <Label>Categoria</Label>
                 <Select value={budgetDialogLabel ?? ""} onValueChange={(v) => setBudgetDialogLabel(v)}>
                   <SelectTrigger className="bg-input border-border">
-                    <SelectValue placeholder="Selecione uma categoria" />
+                    <SelectValue placeholder="Selecione uma categoria (pai = agrega filhas)" />
                   </SelectTrigger>
                   <SelectContent className="max-h-80">
-                    {allCategoryLabels.map((l) => (
-                      <SelectItem key={l} value={l}>{l}</SelectItem>
+                    {groupedCategories.map(([parent, items]) => (
+                      <div key={parent}>
+                        <SelectItem value={parent} className="font-semibold">
+                          {parent} <span className="text-[10px] font-normal text-muted-foreground ml-1">(agrega tudo)</span>
+                        </SelectItem>
+                        {items
+                          .filter((it) => it.label !== parent)
+                          .map((it) => (
+                            <SelectItem key={it.id} value={it.label} className="pl-6">
+                              {it.label}
+                            </SelectItem>
+                          ))}
+                      </div>
                     ))}
                   </SelectContent>
                 </Select>
+                <p className="text-[11px] text-muted-foreground">
+                  Dica: selecione a <strong>categoria-pai</strong> para limitar o gasto somando todas as suas subcategorias.
+                </p>
               </div>
             )}
             {budgetDialogLabel && (
