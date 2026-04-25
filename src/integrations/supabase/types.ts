@@ -16,15 +16,27 @@ export type Database = {
     Tables: {
       pluggy_accounts: {
         Row: {
+          automatically_invested_balance: number | null
+          available_credit_limit: number | null
           balance: number
+          balance_close_date: string | null
+          balance_due_date: string | null
+          bank_overdraft_limit: number | null
+          bank_overdraft_used: number | null
+          card_brand: string | null
+          card_level: string | null
+          card_number_last4: string | null
           created_at: string
+          credit_limit: number | null
           currency: string
           id: string
           marketing_name: string | null
+          minimum_payment: number | null
           name: string
           owner: string | null
           pluggy_account_id: string
           pluggy_item_id: string
+          raw_payload: Json | null
           subtype: string | null
           tax_number: string | null
           type: string | null
@@ -32,15 +44,27 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          automatically_invested_balance?: number | null
+          available_credit_limit?: number | null
           balance?: number
+          balance_close_date?: string | null
+          balance_due_date?: string | null
+          bank_overdraft_limit?: number | null
+          bank_overdraft_used?: number | null
+          card_brand?: string | null
+          card_level?: string | null
+          card_number_last4?: string | null
           created_at?: string
+          credit_limit?: number | null
           currency?: string
           id?: string
           marketing_name?: string | null
+          minimum_payment?: number | null
           name: string
           owner?: string | null
           pluggy_account_id: string
           pluggy_item_id: string
+          raw_payload?: Json | null
           subtype?: string | null
           tax_number?: string | null
           type?: string | null
@@ -48,20 +72,110 @@ export type Database = {
           user_id: string
         }
         Update: {
+          automatically_invested_balance?: number | null
+          available_credit_limit?: number | null
           balance?: number
+          balance_close_date?: string | null
+          balance_due_date?: string | null
+          bank_overdraft_limit?: number | null
+          bank_overdraft_used?: number | null
+          card_brand?: string | null
+          card_level?: string | null
+          card_number_last4?: string | null
           created_at?: string
+          credit_limit?: number | null
           currency?: string
           id?: string
           marketing_name?: string | null
+          minimum_payment?: number | null
           name?: string
           owner?: string | null
           pluggy_account_id?: string
           pluggy_item_id?: string
+          raw_payload?: Json | null
           subtype?: string | null
           tax_number?: string | null
           type?: string | null
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      pluggy_bills: {
+        Row: {
+          allows_installments: boolean | null
+          created_at: string
+          due_date: string | null
+          id: string
+          minimum_payment_amount: number | null
+          paid: boolean | null
+          pluggy_account_id: string
+          pluggy_bill_id: string
+          pluggy_item_id: string
+          raw_payload: Json | null
+          total_amount: number | null
+          total_amount_currency: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          allows_installments?: boolean | null
+          created_at?: string
+          due_date?: string | null
+          id?: string
+          minimum_payment_amount?: number | null
+          paid?: boolean | null
+          pluggy_account_id: string
+          pluggy_bill_id: string
+          pluggy_item_id: string
+          raw_payload?: Json | null
+          total_amount?: number | null
+          total_amount_currency?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          allows_installments?: boolean | null
+          created_at?: string
+          due_date?: string | null
+          id?: string
+          minimum_payment_amount?: number | null
+          paid?: boolean | null
+          pluggy_account_id?: string
+          pluggy_bill_id?: string
+          pluggy_item_id?: string
+          raw_payload?: Json | null
+          total_amount?: number | null
+          total_amount_currency?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      pluggy_categories: {
+        Row: {
+          description: string
+          description_translated: string | null
+          id: string
+          parent_description: string | null
+          parent_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          description: string
+          description_translated?: string | null
+          id: string
+          parent_description?: string | null
+          parent_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          description?: string
+          description_translated?: string | null
+          id?: string
+          parent_description?: string | null
+          parent_id?: string | null
+          updated_at?: string
         }
         Relationships: []
       }
@@ -115,54 +229,81 @@ export type Database = {
       }
       pluggy_transactions: {
         Row: {
+          account_currency: string | null
           amount: number
+          amount_in_account_currency: number | null
           category: string | null
+          category_id: string | null
+          category_parent_id: string | null
           category_pluggy: string | null
           created_at: string
           currency: string
           description: string
           id: string
+          installment_number: number | null
+          merchant_name: string | null
+          operation_type: string | null
           payment_method: string | null
           pluggy_account_id: string
           pluggy_item_id: string
           pluggy_transaction_id: string
           raw_payload: Json | null
+          status: string | null
+          total_installments: number | null
           transaction_date: string
           type: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
+          account_currency?: string | null
           amount: number
+          amount_in_account_currency?: number | null
           category?: string | null
+          category_id?: string | null
+          category_parent_id?: string | null
           category_pluggy?: string | null
           created_at?: string
           currency?: string
           description: string
           id?: string
+          installment_number?: number | null
+          merchant_name?: string | null
+          operation_type?: string | null
           payment_method?: string | null
           pluggy_account_id: string
           pluggy_item_id: string
           pluggy_transaction_id: string
           raw_payload?: Json | null
+          status?: string | null
+          total_installments?: number | null
           transaction_date: string
           type?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
+          account_currency?: string | null
           amount?: number
+          amount_in_account_currency?: number | null
           category?: string | null
+          category_id?: string | null
+          category_parent_id?: string | null
           category_pluggy?: string | null
           created_at?: string
           currency?: string
           description?: string
           id?: string
+          installment_number?: number | null
+          merchant_name?: string | null
+          operation_type?: string | null
           payment_method?: string | null
           pluggy_account_id?: string
           pluggy_item_id?: string
           pluggy_transaction_id?: string
           raw_payload?: Json | null
+          status?: string | null
+          total_installments?: number | null
           transaction_date?: string
           type?: string | null
           updated_at?: string
