@@ -282,11 +282,17 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         else if (txType === "DEBIT") isEntrada = false;
         else isEntrada = isCreditAccount ? amountRaw < 0 : amountRaw >= 0;
 
-        // Categoria efetiva (em PT-BR sempre que possível):
-        //   1. Override manual do usuário (`category`) tem prioridade.
-        //   2. Senão, resolve `category_id` no catálogo Pluggy → descriptionTranslated.
-        //   3. Senão, resolve `category_pluggy` (description em EN) no catálogo.
-        //   4. Senão, mostra como veio (raro) ou marca pendente.
+        // Categoria efetiva — SEMPRE categoria PAI (top-level da hierarquia Pluggy).
+        //   1. Override manual do usuário (`category`) tem prioridade — UI só oferece pais.
+        //   2. Senão, resolve `category_id`/`category_pluggy` no catálogo e sobe para o pai.
+        //   3. Se o nó já é pai (parent_id null), retorna ele mesmo.
+        const resolveToParent = (
+          node: { id: string; description: string; descriptionTranslated: string | null; parentId: string | null } | null,
+        ): string => {
+          if (!node) return "";
+          const target = node.parentId ? (catById.get(node.parentId) ?? node) : node;
+          return target.descriptionTranslated || target.description;
+        };
         let effectiveCategory = "";
         if (t.category && t.category.trim().length > 0) {
           effectiveCategory = t.category;
@@ -294,9 +300,8 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           const node = (t.category_id && catById.get(t.category_id))
             || (t.category_pluggy && catByDescription.get(t.category_pluggy))
             || null;
-          if (node) {
-            effectiveCategory = node.descriptionTranslated || node.description;
-          } else if (t.category_pluggy) {
+          effectiveCategory = resolveToParent(node);
+          if (!effectiveCategory && t.category_pluggy) {
             effectiveCategory = t.category_pluggy;
           }
         }
