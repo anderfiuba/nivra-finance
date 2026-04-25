@@ -96,12 +96,8 @@ const Faturas = () => {
     });
   }, [selectedAccount, activeBill, accountBills, transactions]);
 
-  const avulsas = billTxs.filter(
-    (t) => !((t as Record<string, unknown>).total_installments) && !(t as Record<string, unknown>).installmentNumber,
-  );
-  // billTxs herda de Transaction; total_installments não está no tipo.
-  // Resolvemos pelos campos brutos abaixo (o Context já inclui type DEBIT/CREDIT).
-  // Como o Transaction não carrega installment, usamos heurística leve por descrição:
+  // O tipo Transaction não carrega installmentNumber; usamos heurística por
+  // descrição: padrão "x/y" indica parcela. Sem o padrão, é compra avulsa.
   // procuramos padrão "x/y" no description; se ausente, é avulsa.
   const installmentRegex = /\b(\d{1,2})\s*\/\s*(\d{1,2})\b/;
   const compras = billTxs.filter((t) => !installmentRegex.test(t.description));
