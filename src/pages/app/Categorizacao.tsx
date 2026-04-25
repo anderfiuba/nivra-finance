@@ -362,28 +362,14 @@ const Categorizacao = () => {
                 <Label>Categoria</Label>
                 <Select value={budgetDialogLabel ?? ""} onValueChange={(v) => setBudgetDialogLabel(v)}>
                   <SelectTrigger className="bg-input border-border">
-                    <SelectValue placeholder="Selecione uma categoria (pai = agrega filhas)" />
+                    <SelectValue placeholder="Selecione uma categoria" />
                   </SelectTrigger>
                   <SelectContent className="max-h-80">
-                    {groupedCategories.map(([parent, items]) => (
-                      <div key={parent}>
-                        <SelectItem value={parent} className="font-semibold">
-                          {parent} <span className="text-[10px] font-normal text-muted-foreground ml-1">(agrega tudo)</span>
-                        </SelectItem>
-                        {items
-                          .filter((it) => it.label !== parent)
-                          .map((it) => (
-                            <SelectItem key={it.id} value={it.label} className="pl-6">
-                              {it.label}
-                            </SelectItem>
-                          ))}
-                      </div>
+                    {parentCategories.map((it) => (
+                      <SelectItem key={it.id} value={it.label}>{it.label}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-[11px] text-muted-foreground">
-                  Dica: selecione a <strong>categoria-pai</strong> para limitar o gasto somando todas as suas subcategorias.
-                </p>
               </div>
             )}
             {budgetDialogLabel && (
