@@ -3,6 +3,17 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
   CheckCircle2,
   Plus,
   RefreshCw,
@@ -13,6 +24,7 @@ import {
   Smartphone,
   Monitor,
   Plug,
+  Trash2,
 } from "lucide-react";
 import { useDeviceType } from "@/hooks/useDeviceType";
 import { supabase } from "@/integrations/supabase/client";
@@ -58,6 +70,7 @@ const Conexoes = () => {
   const [listError, setListError] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
 
   const loadItems = useCallback(async () => {
     if (!user) return;
