@@ -205,10 +205,15 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
 
       // Mapeia o id Pluggy da conta → nome amigável + tipo (necessário pra interpretar
       // o sinal de transações de cartão). Transações e bills referenciam pelo id Pluggy.
-      type AccMeta = { name: string; type: string | null };
+      type AccMeta = { name: string; type: string | null; tag: string | null };
       const accountMap = new Map<string, AccMeta>();
       const accs: FinanceAccount[] = (accData ?? []).map((a) => {
-        accountMap.set(a.pluggy_account_id, { name: a.marketing_name || a.name, type: a.type });
+        const last4 = a.card_number_last4 ?? null;
+        accountMap.set(a.pluggy_account_id, {
+          name: a.marketing_name || a.name,
+          type: a.type,
+          tag: last4 ? `••${last4}` : null,
+        });
         return {
           id: a.id,
           pluggyAccountId: a.pluggy_account_id,
