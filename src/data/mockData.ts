@@ -20,6 +20,8 @@ export interface Transaction {
   originalAmount?: number;
   /** Código da moeda original (ex.: USD) quando difere da moeda da conta. */
   originalCurrency?: string;
+  /** ID Pluggy da conta (não confundir com o UUID interno). */
+  pluggyAccountId?: string;
 }
 
 export const CATEGORIES = [
