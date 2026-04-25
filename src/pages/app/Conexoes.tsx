@@ -3,17 +3,6 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import {
   CheckCircle2,
   Plus,
   RefreshCw,
@@ -24,13 +13,14 @@ import {
   Smartphone,
   Monitor,
   Plug,
-  Trash2,
 } from "lucide-react";
 import { useDeviceType } from "@/hooks/useDeviceType";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { PluggyConnect } from "pluggy-connect-sdk";
 import { useAuth } from "@/contexts/AuthContext";
+import { formatRelativeTime } from "@/lib/format";
+import { DisconnectButton } from "@/components/contas/DisconnectButton";
 
 // Linha de pluggy_items no Cloud + status atualizado.
 interface PluggyItemRow {
@@ -50,18 +40,6 @@ interface PluggyItemRow {
 const STATUS_OK = new Set(["UPDATED", "UPDATING", "PARTIAL_SUCCESS"]);
 const STATUS_REAUTH = new Set(["LOGIN_ERROR", "WAITING_USER_INPUT", "USER_INPUT_TIMEOUT"]);
 
-function formatRelative(iso?: string | null): string {
-  if (!iso) return "nunca sincronizado";
-  const diff = Date.now() - new Date(iso).getTime();
-  const min = Math.floor(diff / 60000);
-  if (min < 1) return "agora há pouco";
-  if (min < 60) return `há ${min} min`;
-  const h = Math.floor(min / 60);
-  if (h < 24) return `há ${h} h`;
-  const d = Math.floor(h / 24);
-  return `há ${d} d`;
-}
-
 const Conexoes = () => {
   const device = useDeviceType();
   const { user } = useAuth();
@@ -70,7 +48,6 @@ const Conexoes = () => {
   const [listError, setListError] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
-  const [removingId, setRemovingId] = useState<string | null>(null);
 
   const loadItems = useCallback(async () => {
     if (!user) return;
@@ -184,25 +161,6 @@ const Conexoes = () => {
       toast.error("Erro ao sincronizar", { description: message });
     } finally {
       setSyncingId(null);
-    }
-  };
-
-  const handleRemove = async (itemId: string, bank: string) => {
-    setRemovingId(itemId);
-    try {
-      const { error } = await supabase.functions.invoke("pluggy-delete-item", {
-        body: { itemId },
-      });
-      if (error) throw error;
-      toast.success(`Conexão removida — ${bank}`, {
-        description: "Contas, transações e faturas desse banco foram apagados.",
-      });
-      loadItems();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Falha ao remover conexão.";
-      toast.error("Erro ao remover conexão", { description: message });
-    } finally {
-      setRemovingId(null);
     }
   };
 
@@ -367,7 +325,7 @@ const Conexoes = () => {
                   </div>
                   <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5">
                     <RefreshCw className="h-3 w-3" /> Última sincronização{" "}
-                    {formatRelative(it.last_synced_at ?? it.updated_at)}
+                    {formatRelativeTime(it.last_synced_at ?? it.updated_at)}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 ml-auto">
@@ -384,43 +342,12 @@ const Conexoes = () => {
                     )}
                     Sincronizar
                   </Button>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-destructive hover:text-destructive"
-                        disabled={removingId === it.pluggy_item_id}
-                      >
-                        {removingId === it.pluggy_item_id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
-                        ) : (
-                          <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-                        )}
-                        Remover
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Remover {it.connector_name}?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          Esta ação revoga seu consentimento na Pluggy e apaga do painel
-                          todas as contas, transações e faturas vinculadas a este banco.
-                          Os limites de gastos por categoria que você definiu serão mantidos.
-                          Para acessar novamente, será preciso conectar de novo.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                        <AlertDialogAction
-                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                          onClick={() => handleRemove(it.pluggy_item_id, it.connector_name)}
-                        >
-                          Remover conexão
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
+                  <DisconnectButton
+                    itemId={it.pluggy_item_id}
+                    connectorName={it.connector_name}
+                    variant="button"
+                    onRemoved={loadItems}
+                  />
                 </div>
               </Card>
             );
