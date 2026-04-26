@@ -7,7 +7,13 @@ import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -73,9 +79,16 @@ const Categorizacao = () => {
   }, [cycles, monthKey]);
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [showOthers, setShowOthers] = useState(false);
-  const [onlyWithSpending, setOnlyWithSpending] = useState(false);
-  const [onlyWithLimit, setOnlyWithLimit] = useState(false);
+  // Filtro único da lista de categorias (substitui os 3 toggles antigos):
+  // - "default":        7 categorias-pai padrão
+  // - "withSpending":   apenas categorias com gasto no ciclo
+  // - "withLimit":      apenas categorias com limite definido
+  // - "all":            mostra tudo (padrão + extras do catálogo)
+  type FilterMode = "default" | "withSpending" | "withLimit" | "all";
+  const [filterMode, setFilterMode] = useState<FilterMode>("default");
+  const onlyWithSpending = filterMode === "withSpending";
+  const onlyWithLimit = filterMode === "withLimit";
+  const showOthers = filterMode === "all";
 
   // dialog (somente categoria-pai)
   const [dlgOpen, setDlgOpen] = useState(false);
@@ -436,7 +449,7 @@ const Categorizacao = () => {
       </div>
 
       {/* Header do ciclo: seletor + ciclo atual */}
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-2 min-w-0">
           <MonthSelector months={cycles} value={monthKey} onChange={setMonthKey} />
           <CycleDaySettingsButton className="h-9 w-9 shrink-0" />
@@ -551,49 +564,31 @@ const Categorizacao = () => {
           </span>
         </div>
 
-        {/* Toggles de visualização */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between gap-3 px-1">
-            <Label
-              htmlFor="cat-only-with-limit"
-              className="text-xs text-muted-foreground cursor-pointer select-none"
+        {/* Filtro único da lista (substitui os 3 toggles antigos) */}
+        <div className="flex items-center gap-2 px-1">
+          <Label
+            htmlFor="cat-filter"
+            className="text-xs text-muted-foreground select-none shrink-0"
+          >
+            Filtrar
+          </Label>
+          <Select
+            value={filterMode}
+            onValueChange={(v) => setFilterMode(v as FilterMode)}
+          >
+            <SelectTrigger
+              id="cat-filter"
+              className="h-9 flex-1 bg-input border-border text-xs md:text-sm"
             >
-              Apenas com limite definido
-            </Label>
-            <Switch
-              id="cat-only-with-limit"
-              checked={onlyWithLimit}
-              onCheckedChange={setOnlyWithLimit}
-            />
-          </div>
-          <div className="flex items-center justify-between gap-3 px-1">
-            <Label
-              htmlFor="cat-only-with-spending"
-              className="text-xs text-muted-foreground cursor-pointer select-none"
-            >
-              Apenas com gastos no ciclo
-            </Label>
-            <Switch
-              id="cat-only-with-spending"
-              checked={onlyWithSpending}
-              onCheckedChange={setOnlyWithSpending}
-            />
-          </div>
-          {!onlyWithSpending && extraLabels.length > 0 && (
-            <div className="flex items-center justify-between gap-3 px-1">
-              <Label
-                htmlFor="cat-show-others"
-                className="text-xs text-muted-foreground cursor-pointer select-none"
-              >
-                Mostrar outras categorias
-              </Label>
-              <Switch
-                id="cat-show-others"
-                checked={showOthers}
-                onCheckedChange={setShowOthers}
-              />
-            </div>
-          )}
+              <SelectValue placeholder="Selecione um filtro" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="default">Categorias padrão</SelectItem>
+              <SelectItem value="withLimit">Apenas com limite definido</SelectItem>
+              <SelectItem value="withSpending">Apenas com gastos no ciclo</SelectItem>
+              <SelectItem value="all">Todas as categorias</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Lista de categorias. */}
