@@ -925,11 +925,23 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     }, 0);
   }, [accounts]);
 
+  // Patrimônio = saldo de contas (BANK/INVESTMENT) + saldo automaticamente investido.
+  // Cartões (CREDIT) ficam de fora — fatura aberta não é dívida líquida do patrimônio.
+  const netWorth = useMemo(() => {
+    return accounts.reduce((sum, a) => {
+      const type = (a.type ?? "").toUpperCase();
+      if (type === "CREDIT") return sum;
+      const invested = a.automaticallyInvestedBalance ?? 0;
+      return sum + (a.balance ?? 0) + invested;
+    }, 0);
+  }, [accounts]);
+
   const value: FinanceContextValue = {
     transactions,
     accounts,
     items,
     totalBalance,
+    netWorth,
     isLoading,
     refresh,
     categories,
