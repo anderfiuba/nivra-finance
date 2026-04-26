@@ -565,49 +565,31 @@ const Categorizacao = () => {
           </span>
         </div>
 
-        {/* Toggles de visualização */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between gap-3 px-1">
-            <Label
-              htmlFor="cat-only-with-limit"
-              className="text-xs text-muted-foreground cursor-pointer select-none"
+        {/* Filtro único da lista (substitui os 3 toggles antigos) */}
+        <div className="flex items-center gap-2 px-1">
+          <Label
+            htmlFor="cat-filter"
+            className="text-xs text-muted-foreground select-none shrink-0"
+          >
+            Filtrar
+          </Label>
+          <Select
+            value={filterMode}
+            onValueChange={(v) => setFilterMode(v as FilterMode)}
+          >
+            <SelectTrigger
+              id="cat-filter"
+              className="h-9 flex-1 bg-input border-border text-xs md:text-sm"
             >
-              Apenas com limite definido
-            </Label>
-            <Switch
-              id="cat-only-with-limit"
-              checked={onlyWithLimit}
-              onCheckedChange={setOnlyWithLimit}
-            />
-          </div>
-          <div className="flex items-center justify-between gap-3 px-1">
-            <Label
-              htmlFor="cat-only-with-spending"
-              className="text-xs text-muted-foreground cursor-pointer select-none"
-            >
-              Apenas com gastos no ciclo
-            </Label>
-            <Switch
-              id="cat-only-with-spending"
-              checked={onlyWithSpending}
-              onCheckedChange={setOnlyWithSpending}
-            />
-          </div>
-          {!onlyWithSpending && extraLabels.length > 0 && (
-            <div className="flex items-center justify-between gap-3 px-1">
-              <Label
-                htmlFor="cat-show-others"
-                className="text-xs text-muted-foreground cursor-pointer select-none"
-              >
-                Mostrar outras categorias
-              </Label>
-              <Switch
-                id="cat-show-others"
-                checked={showOthers}
-                onCheckedChange={setShowOthers}
-              />
-            </div>
-          )}
+              <SelectValue placeholder="Selecione um filtro" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="default">Categorias padrão</SelectItem>
+              <SelectItem value="withLimit">Apenas com limite definido</SelectItem>
+              <SelectItem value="withSpending">Apenas com gastos no ciclo</SelectItem>
+              <SelectItem value="all">Todas as categorias</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Lista de categorias. */}
