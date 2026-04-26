@@ -93,6 +93,12 @@ export interface CategoryBudget {
   parentCategoryLabel: string | null;
 }
 
+export interface TotalBudget {
+  id: string;
+  monthlyLimit: number;
+  alertThreshold: number;
+}
+
 export interface CardCycleSetting {
   pluggyAccountId: string;
   closingDay: number | null;
@@ -187,6 +193,12 @@ interface FinanceContextValue {
     parentCategoryLabel?: string | null,
   ) => Promise<void>;
   deleteBudget: (id: string) => Promise<void>;
+  /** Limite mensal TOTAL definido pelo usuário (opcional). */
+  totalBudget: TotalBudget | null;
+  /** Soma dos limites de categorias-pai com orçamento. */
+  parentBudgetsSum: number;
+  upsertTotalBudget: (monthlyLimit: number, alertThreshold: number) => Promise<void>;
+  deleteTotalBudget: () => Promise<void>;
   /** Agrega gastos de um mês civil (YYYY-MM) por categoria pai → filhas. */
   monthlyCategoryAggregates: (monthKey: string) => {
     total: number;
@@ -237,6 +249,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   const [categories, setCategories] = useState<PluggyCategoryNode[]>([]);
   const [bills, setBills] = useState<FinanceBill[]>([]);
   const [categoryBudgets, setCategoryBudgets] = useState<CategoryBudget[]>([]);
+  const [totalBudget, setTotalBudget] = useState<TotalBudget | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [cardCycleSettings, setCardCycleSettings] = useState<Record<string, CardCycleSetting>>({});
   const [cycleDay, setCycleDayState] = useState<number>(() => loadCycleDay());
@@ -249,6 +262,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       setItems([]);
       setBills([]);
       setCategoryBudgets([]);
+      setTotalBudget(null);
       setCardCycleSettings({});
       return;
     }
@@ -262,6 +276,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         { data: budgetData },
         { data: itemData },
         { data: cycleData },
+        { data: totalBudgetData },
       ] = await Promise.all([
         supabase
           .from("pluggy_accounts")
@@ -300,6 +315,10 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         supabase
           .from("card_cycle_settings")
           .select("pluggy_account_id,closing_day,due_day"),
+        supabase
+          .from("total_budget_settings")
+          .select("id,monthly_limit,alert_threshold")
+          .maybeSingle(),
       ]);
 
       // Index pluggy_items por pluggy_item_id pra resolver logo/cor/sync.
@@ -533,6 +552,16 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           scope: (b.scope === "child" ? "child" : "parent") as "parent" | "child",
           parentCategoryLabel: b.parent_category_label ?? null,
         })),
+      );
+
+      setTotalBudget(
+        totalBudgetData
+          ? {
+              id: totalBudgetData.id,
+              monthlyLimit: Number(totalBudgetData.monthly_limit),
+              alertThreshold: Number(totalBudgetData.alert_threshold),
+            }
+          : null,
       );
 
       const cycleMap: Record<string, CardCycleSetting> = {};
@@ -994,6 +1023,51 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     [refresh],
   );
 
+  const parentBudgetsSum = useMemo(
+    () =>
+      categoryBudgets
+        .filter((b) => b.scope === "parent")
+        .reduce((s, b) => s + b.monthlyLimit, 0),
+    [categoryBudgets],
+  );
+
+  const upsertTotalBudget = useCallback(
+    async (monthlyLimit: number, alertThreshold: number) => {
+      if (!user) return;
+      const { error } = await supabase
+        .from("total_budget_settings")
+        .upsert(
+          {
+            user_id: user.id,
+            monthly_limit: monthlyLimit,
+            alert_threshold: alertThreshold,
+          },
+          { onConflict: "user_id" },
+        );
+      if (error) {
+        console.error("upsertTotalBudget error", error);
+        toast.error("Não foi possível salvar o limite total.");
+        return;
+      }
+      await refresh();
+    },
+    [user, refresh],
+  );
+
+  const deleteTotalBudget = useCallback(async () => {
+    if (!user) return;
+    const { error } = await supabase
+      .from("total_budget_settings")
+      .delete()
+      .eq("user_id", user.id);
+    if (error) {
+      console.error("deleteTotalBudget error", error);
+      toast.error("Não foi possível remover o limite total.");
+      return;
+    }
+    await refresh();
+  }, [user, refresh]);
+
   const upsertCardCycle = useCallback(
     async (pluggyAccountId: string, closingDay: number, dueDay: number) => {
       if (!user) return;
@@ -1084,6 +1158,10 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     budgetAlerts,
     upsertBudget,
     deleteBudget,
+    totalBudget,
+    parentBudgetsSum,
+    upsertTotalBudget,
+    deleteTotalBudget,
     monthlyCategoryAggregates,
     cardCycleSettings,
     upsertCardCycle,

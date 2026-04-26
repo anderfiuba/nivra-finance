@@ -49,7 +49,15 @@ export function CategorySheet({
   categoryLabel,
   parentCategoryLabel = null,
 }: Props) {
-  const { categoryBudgets, monthTransactions, upsertBudget, deleteBudget, categories } = useFinance();
+  const {
+    categoryBudgets,
+    monthTransactions,
+    upsertBudget,
+    deleteBudget,
+    categories,
+    totalBudget,
+    parentBudgetsSum,
+  } = useFinance();
 
   const existing = useMemo(
     () => categoryBudgets.find((b) => b.id === budgetId) ?? null,
@@ -99,6 +107,28 @@ export function CategorySheet({
       toast.error("Informe um valor válido.");
       return;
     }
+
+    // Validação contra o limite TOTAL: a soma dos limites de categorias-pai
+    // não pode ultrapassar o limite total definido pelo usuário.
+    if (totalBudget) {
+      const isChildPick = !existing && !parentCategoryLabel && childChoice.length > 0;
+      const willBeChild = isChildPick || !!parentCategoryLabel;
+      // Só valida quando o orçamento sendo salvo afeta a soma de pais.
+      if (!willBeChild) {
+        const previousLimit =
+          existing && existing.scope === "parent" ? existing.monthlyLimit : 0;
+        const projectedSum = parentBudgetsSum - previousLimit + value;
+        if (projectedSum > totalBudget.monthlyLimit + 0.001) {
+          toast.error(
+            `Limite total estourado: a soma das categorias ficaria em ${formatBRL(
+              projectedSum,
+            )}, acima do teto de ${formatBRL(totalBudget.monthlyLimit)}.`,
+          );
+          return;
+        }
+      }
+    }
+
     setSaving(true);
     try {
       // Se o usuário escolheu uma subcategoria, salva como child desse pai.
