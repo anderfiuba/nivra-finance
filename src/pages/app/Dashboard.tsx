@@ -13,7 +13,6 @@ import {
   Target,
   Clock,
   LineChart as LineChartIcon,
-  AlertTriangle,
 } from "lucide-react";
 import {
   PieChart,
@@ -55,8 +54,6 @@ const Dashboard = () => {
     accounts,
     bills,
     budgetProgress,
-    items,
-    transactions,
   } = useFinance();
 
   const trendEntradas = pctChange(monthTotals.entradas, previousMonthTotals.entradas);
@@ -130,29 +127,6 @@ const Dashboard = () => {
     return Math.abs(max - min) > 0.01;
   }, [patrimonySeries]);
 
-  // Contas-corrente (BANK) que não receberam nenhuma transação — sinal forte de
-  // sincronização parcial no Open Finance (extrato não autorizado pelo banco).
-  const bankAccountsWithoutTx = useMemo(() => {
-    const txByAccount = new Set<string>();
-    for (const t of transactions) {
-      if (t.pluggyAccountId) txByAccount.add(t.pluggyAccountId);
-    }
-    return accounts.filter(
-      (a) => (a.type ?? "").toUpperCase() === "BANK" && !txByAccount.has(a.pluggyAccountId),
-    );
-  }, [accounts, transactions]);
-
-  const partialSyncItems = useMemo(
-    () => items.filter((it) => it.lastSyncWarning || (it.executionStatus && it.executionStatus !== "SUCCESS")),
-    [items],
-  );
-
-  const showSyncWarning = bankAccountsWithoutTx.length > 0 || partialSyncItems.length > 0;
-  const isRateLimited = useMemo(
-    () => partialSyncItems.some((it) => it.lastSyncWarning && /limite mensal/i.test(it.lastSyncWarning)),
-    [partialSyncItems],
-  );
-
   return (
     <div className="p-4 md:p-8 space-y-4 md:space-y-6 max-w-[1600px] mx-auto">
       <div>
@@ -209,44 +183,6 @@ const Dashboard = () => {
           </div>
           <span className="text-[10px] md:text-xs text-muted-foreground">Últimos 3 meses</span>
         </div>
-        {showSyncWarning && (
-          <div className="mb-3 md:mb-4 rounded-md bg-warning/5 border border-warning/30 p-3 flex items-start gap-2.5">
-            <AlertTriangle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
-            <div className="text-xs text-foreground leading-relaxed flex-1">
-              <p className="font-medium">
-                {isRateLimited
-                  ? "Extrato bloqueado pelo limite mensal do Open Finance"
-                  : bankAccountsWithoutTx.length > 0
-                  ? `Conta${bankAccountsWithoutTx.length > 1 ? "s" : ""} sem extrato sincronizado`
-                  : "Sincronização parcial detectada"}
-              </p>
-              {bankAccountsWithoutTx.length > 0 && !isRateLimited && (
-                <p className="mt-1 text-muted-foreground">
-                  {bankAccountsWithoutTx
-                    .map((a) => `${a.connectorName ?? "Banco"} — ${a.name}`)
-                    .join(", ")}{" "}
-                  não retornou movimentações. Sem extrato, o histórico de patrimônio fica preso ao saldo atual.
-                </p>
-              )}
-              {(isRateLimited || bankAccountsWithoutTx.length === 0) && partialSyncItems[0]?.lastSyncWarning && (
-                <p className="mt-1 text-muted-foreground">{partialSyncItems[0].lastSyncWarning}</p>
-              )}
-              {isRateLimited ? (
-                <p className="mt-2 text-muted-foreground">
-                  O Banco Central impõe quotas mensais por CPF/instituição. O acesso volta automaticamente
-                  no início do próximo mês — não é preciso reconectar.
-                </p>
-              ) : (
-                <Link
-                  to="/app/conexoes"
-                  className="inline-block mt-2 text-warning font-medium hover:underline"
-                >
-                  Reconectar agora →
-                </Link>
-              )}
-            </div>
-          </div>
-        )}
         {patrimonySeries.length === 0 ? (
           <div className="h-[180px] md:h-[220px] flex items-center justify-center text-xs text-muted-foreground">
             Sem contas conectadas para calcular o histórico.

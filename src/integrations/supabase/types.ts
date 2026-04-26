@@ -303,11 +303,9 @@ export type Database = {
           created_at: string
           execution_status: string | null
           id: string
-          last_sync_warning: string | null
           last_synced_at: string | null
           pluggy_item_id: string
           status: string | null
-          status_detail: Json | null
           updated_at: string
           user_id: string
         }
@@ -320,11 +318,9 @@ export type Database = {
           created_at?: string
           execution_status?: string | null
           id?: string
-          last_sync_warning?: string | null
           last_synced_at?: string | null
           pluggy_item_id: string
           status?: string | null
-          status_detail?: Json | null
           updated_at?: string
           user_id: string
         }
@@ -337,11 +333,9 @@ export type Database = {
           created_at?: string
           execution_status?: string | null
           id?: string
-          last_sync_warning?: string | null
           last_synced_at?: string | null
           pluggy_item_id?: string
           status?: string | null
-          status_detail?: Json | null
           updated_at?: string
           user_id?: string
         }
