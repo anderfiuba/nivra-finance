@@ -1,178 +1,102 @@
 
-## 1. Sincronização Open Finance — automática 2× ao dia, sem botão manual
+## Diagnóstico
 
-### 1.1. Agendamento no banco (pg_cron + pg_net)
+### Bug do Patrimônio (R$ 1.531,54 em vez de R$ 765,77)
+A conta NuBank correta retorna do Pluggy:
+- `balance = 765,77`
+- `automatically_invested_balance = 765,77`
 
-Criar uma migração que:
-- Habilita as extensões `pg_cron` e `pg_net` (idempotente).
-- Cria uma função SQL `public.trigger_pluggy_sync_all()` que itera todos os `pluggy_items` ativos e dispara, para cada um, uma chamada HTTP assíncrona via `net.http_post` para a edge function **`pluggy-sync-data`** (passando `itemId` no body). A função usa `SECURITY DEFINER` e roda com a service role.
-- Agenda dois jobs `cron.schedule`:
-  - `pluggy-sync-morning` → `0 3 * * *` (03:00 UTC = 00:00 BRT)
-  - `pluggy-sync-evening` → `0 15 * * *` (15:00 UTC = 12:00 BRT)
-  - Cada job chama `select public.trigger_pluggy_sync_all();`
-- Antes de criar, faz `cron.unschedule` defensivo se já existirem (para suportar re-execução).
+O Pluggy já **inclui o saldo investido dentro do `balance`**. O código atual (`FinanceContext.netWorth`) soma os dois → duplica o valor (765,77 × 2 = 1.531,54). É exatamente o erro reportado.
 
-> Como `pg_net` precisa do JWT/anon key para chamar a edge function autenticada, o job vai usar a **service role key** lida de `vault.decrypted_secrets` (já há `SUPABASE_SERVICE_ROLE_KEY` configurado). Como recomendado pela documentação interna, a SQL com URL/secret será aplicada via **insert tool** (não via migration), porque carrega dados específicos do projeto.
+### Cards vazios no Dashboard
+Confirmado no banco: existem **69 transações em abril/2026** e **3 contas BANK** + **3 cartões CREDIT**. Porém o card "ENTRADAS NO CICLO" mostra R$ 0,00 na imagem do usuário. Causa: o Dashboard usa `cycleTransactions` (filtra pelo `cycleDay` que o usuário configurou para faturas de cartão). Se o `cycleDay` está, por exemplo, em 26+, o "ciclo atual" começou hoje e está vazio. Mesma raiz para "Principais categorias" e "Movimentações recentes".
 
-Plano de SQL (a ser dividido em migration + insert/seed):
+A solução é o Dashboard usar **mês civil corrente** (1º → último dia do mês), que é o padrão da referência visual e o que o usuário espera. O conceito de "cycleDay" continua válido para a página de Faturas, mas não deve governar o Dashboard.
 
-**Migration (estrutura):**
-```sql
-create extension if not exists pg_cron with schema extensions;
-create extension if not exists pg_net  with schema extensions;
+### Faturas do mês vazias
+Todas as faturas no banco estão `paid=true` (incluindo a de 08/04/2026). O card só mostra faturas com `due_date` no mês civil corrente E `effectivePaid=false` → fica vazio. Vamos:
+1. Tornar a busca tolerante: se não houver faturas com vencimento no mês corrente, usar a próxima fatura em aberto (mais próxima).
+2. Sempre mostrar pelo menos um resumo amigável quando não há nada (estado "tudo em dia").
 
-create or replace function public.trigger_pluggy_sync_all()
-returns void
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  r record;
-begin
-  for r in
-    select distinct pluggy_item_id
-    from public.pluggy_items
-    where pluggy_item_id is not null
-  loop
-    perform net.http_post(
-      url     := current_setting('app.settings.sync_url', true),
-      headers := jsonb_build_object(
-                   'Content-Type','application/json',
-                   'Authorization', 'Bearer ' || current_setting('app.settings.service_key', true)
-                 ),
-      body    := jsonb_build_object('itemId', r.pluggy_item_id, 'source', 'cron')
-    );
-  end loop;
-end;
-$$;
+### Contas duplicadas no banco
+Observação adicional: existem 2 cópias de cada conta NuBank (BANK 15,77 × 2) e 2 cópias do cartão `gold` com balance −4106,91 (provavelmente reconexões antigas onde o item foi recriado mas o registro antigo não foi limpo). Isso infla `totalBalance` mas, após o fix do Patrimônio, o valor vai mostrar 765,77 + 15,77 + 15,77 ≈ 797,31 — ainda visivelmente errado, embora muito mais próximo. **Vou tratar isso como item separado** (limpeza de pluggy_items órfãos) para manter este plano focado nos itens reportados pelo usuário; menciono porque o número final pode não bater com 765,77 redondo até essa limpeza acontecer.
+
+## Plano de implementação
+
+### 1. Correção do Patrimônio (`src/contexts/FinanceContext.tsx`)
+Trocar a fórmula `netWorth` para **não somar `automaticallyInvestedBalance`** — ele já está dentro de `balance`:
+
+```ts
+const netWorth = useMemo(() => {
+  return accounts.reduce((sum, a) => {
+    const type = (a.type ?? "").toUpperCase();
+    if (type === "CREDIT") return sum;       // cartões fora
+    return sum + (a.balance ?? 0);           // balance JÁ inclui investido
+  }, 0);
+}, [accounts]);
 ```
 
-**Insert tool (configuração com dados sensíveis e agendamento):**
-```sql
-alter database postgres set "app.settings.sync_url" = 'https://pmnqukoifdqiiyctyoof.supabase.co/functions/v1/pluggy-sync-data';
-alter database postgres set "app.settings.service_key" = '<SERVICE_ROLE_KEY>';
--- (Substituído em runtime; não comitado em migrations)
+Atualizar comentário do campo `automaticallyInvestedBalance` na interface para deixar claro que é apenas informativo (parcela do `balance` que está rendendo).
 
-select cron.unschedule('pluggy-sync-morning') where exists (select 1 from cron.job where jobname='pluggy-sync-morning');
-select cron.unschedule('pluggy-sync-evening') where exists (select 1 from cron.job where jobname='pluggy-sync-evening');
+### 2. Dashboard usar mês civil em vez de ciclo (`src/pages/app/Dashboard.tsx` e `FinanceContext.tsx`)
+Adicionar dois novos selectors no `FinanceContext` paralelos aos atuais:
+- `monthTransactions` — transações do mês civil corrente
+- `monthTotals` / `previousMonthTotals` — totais do mês civil corrente / anterior
+- `expensesByCategoryMonth` — agregação por categoria do mês civil corrente
 
-select cron.schedule('pluggy-sync-morning', '0 3 * * *',  $$ select public.trigger_pluggy_sync_all(); $$);
-select cron.schedule('pluggy-sync-evening', '0 15 * * *', $$ select public.trigger_pluggy_sync_all(); $$);
+No Dashboard, trocar:
+- "Entradas/Saídas/Resultado **no ciclo**" → "**no mês**" (rótulo) e usar `monthTotals` + `previousMonthTotals`
+- "Movimentações recentes" → últimas 8 do mês civil
+- "Principais categorias" → `expensesByCategoryMonth`
+- Atualizar header "Visão consolidada do ciclo X" → "Visão consolidada de **abril/2026**"
+
+(O `cycleDay` permanece em uso na página `Faturas.tsx` — não mexemos lá.)
+
+### 3. Faturas do mês — fallback para próxima fatura em aberto (`Dashboard.tsx`)
+```ts
+const openBills = useMemo(() => {
+  // 1) prioriza faturas em aberto com due_date no mês civil
+  const inMonth = bills.filter(b => !b.effectivePaid && b.dueDate
+    && new Date(b.dueDate).getMonth() === now.getMonth()
+    && new Date(b.dueDate).getFullYear() === now.getFullYear());
+  if (inMonth.length > 0) return inMonth;
+  // 2) fallback: próxima fatura em aberto (qualquer mês futuro)
+  return bills.filter(b => !b.effectivePaid && b.dueDate
+    && new Date(b.dueDate) >= now)
+    .sort((a, b) => a.dueDate!.localeCompare(b.dueDate!))
+    .slice(0, 3);
+}, [bills]);
 ```
+Se ainda assim ficar vazio, mostrar mensagem "Tudo em dia. Próxima fatura ainda não fechou." com link para Faturas.
 
-> **Atenção sobre `ALTER DATABASE`:** as instruções globais proíbem migrations contendo `ALTER DATABASE postgres`. Por isso esses dois `ALTER DATABASE ... SET` ficam **fora da migration**, executados via insert tool no projeto atual (não viajam em remix), igual à prática recomendada para cron jobs.
+### 4. Histórico do Patrimônio — últimos 3 meses
+**Decisão**: como não temos snapshots históricos do balance no banco, vamos derivar do extrato:
 
-### 1.2. Edge function `pluggy-sync-data` aceita chamada cron
+**Patrimônio em t** = saldo_atual − (entradas_BANK depois de t) + (saídas_BANK depois de t)
 
-A função hoje exige `verify_jwt = true` e usa `auth.uid()` via RLS para resolver o usuário do item. Para o cron funcionar precisamos:
+Funciona porque toda transação BANK movimenta o `balance` final. Cartões (CREDIT) ficam de fora (afetam fatura, não patrimônio).
 
-- Em `supabase/config.toml`, manter a função `pluggy-sync-data` chamável com **service role** (a service role key passa no `Authorization: Bearer` e é aceita como JWT válido pelo gateway). Não é preciso desativar `verify_jwt` — service role key é um JWT válido.
-- No código da função, ajustar o trecho que resolve o `user_id` do item: hoje deduz pelo `auth.uid()` + RLS; precisa **ler `user_id` direto da tabela `pluggy_items`** usando service-role client quando o caller é cron (sem `auth.uid()`). Detecta cron por `body.source === "cron"` ou pela ausência de `auth.uid()`.
+Vou criar um novo selector `patrimonyHistory` no `FinanceContext` que retorna 90 pontos diários (últimos 3 meses). Implementação:
+1. Soma BANK balances atuais → ponto de hoje.
+2. Itera transações BANK em ordem decrescente, para cada dia anterior subtrai entradas e soma saídas → vai "desfazendo" até 90 dias atrás.
+3. Retorna `[{ date: "2026-01-26", value: 432.10 }, ...]` ordenado crescente.
 
-Alteração resumida em `supabase/functions/pluggy-sync-data/index.ts`:
-- Após autenticar, tentar `supabaseUserClient.auth.getUser()`. Se vazio → assumir cron, buscar `user_id` do item via service role.
-- Validar que o item existe e pertence a algum usuário antes de prosseguir. Sem isso, recusar.
+Adicionar novo card no Dashboard `<PatrimonyHistoryCard />` logo abaixo da grid de KPIs (posição da imagem-1):
+- Title "HISTÓRICO DO PATRIMÔNIO"
+- AreaChart do Recharts (já temos), gradient azul, eixo Y formatado em BRL compacto (R$ 800), eixo X em DD/MM.
+- Sem botões 1D/1W/etc na primeira versão (escopo: 3 meses fixos, conforme pedido). Posso adicionar depois se quiser.
 
-Sem mudanças em `pluggy-sync-item` (refresh remoto) — a `pluggy-sync-data` já chama o necessário internamente; o refresh extra do botão manual sai junto.
+### 5. Limpeza
+Não removo `cycleTransactions` etc — outras telas usam.
 
-### 1.3. Remover toda a UI/lógica de sincronização manual
+## Arquivos editados
+- `src/contexts/FinanceContext.tsx` — fix do `netWorth`, novos selectors `monthTotals`/`previousMonthTotals`/`expensesByCategoryMonth`/`patrimonyHistory`
+- `src/pages/app/Dashboard.tsx` — usar mês civil, fallback de faturas, novo card de histórico
+- Novo componente: `src/components/dashboard/PatrimonyHistoryCard.tsx` (AreaChart)
 
-Em `src/pages/app/Conexoes.tsx`:
-- Remover `handleSync`, `syncingId`, `setSyncingId`.
-- Remover o `<Button>` "Sincronizar" e o `<Button>` topo "Atualizar" (recarregar lista). A própria realtime + revalidação ao montar já cuida — mas vamos manter um pequeno botão **"Atualizar lista"** somente para recarregar os metadados do banco (não chama Pluggy). Mais leve, sem `RefreshCw` confuso.
-- Remover `import { RefreshCw }` não usado e qualquer referência a `pluggy-sync-item` no client (não há outras hoje).
-- Adicionar um aviso fixo abaixo do header explicando a regra:
+## Não vou tocar
+- `cycleDay` / página Faturas — segue como está
+- Migrations de banco — não precisamos de tabela de snapshots; derivamos do extrato
 
-  > _"Suas contas são sincronizadas automaticamente **2 vezes ao dia** (00:00 e 12:00, horário de Brasília). Novas transações aparecerão em todas as telas — extrato, dashboard, categorias e faturas — assim que chegarem."_
-
-Em `supabase/functions/`:
-- A função `pluggy-sync-item` é hoje chamada apenas pelo botão removido. Manter o arquivo? **Remover** (delete) para limpar a base, junto com a entrada em `supabase/config.toml`. (A sync-data já solicita o refresh implicitamente ao puxar dados; se for preciso forçar refresh remoto, o cron pode evoluir depois.)
-
-### 1.4. Atualização em cadeia já é coberta
-
-`FinanceContext` já assina realtime em `pluggy_transactions / pluggy_accounts / pluggy_bills / category_budgets` e chama `refresh()`. Como o cron grava nessas tabelas via `pluggy-sync-data`, **extrato, dashboard, faturas e categorias atualizam automaticamente** sem nenhuma alteração extra. Garantido.
-
----
-
-## 2. Dashboard novo — claro, conciso, mobile-first
-
-Reescrita de `src/pages/app/Dashboard.tsx` inspirada na referência (Visor) mas usando nossos tokens. Layout em **uma coluna no mobile**, **2 colunas no md+**, **3 colunas no lg+**.
-
-### 2.1. Estrutura (top → bottom)
-
-1. **Header compacto** — saudação + label do ciclo (já existe, manter enxuto).
-
-2. **Linha de KPIs** (4 cards no desktop, grid 2×2 no mobile):
-   - **Patrimônio** (substitui "Saldo consolidado") — soma `balance` de contas com `type !== 'CREDIT'` + `automatically_invested_balance` quando presente + futuras contas com `type === 'INVESTMENT'`. Cartões ficam fora. Subtítulo em `text-xs`: `"Contas + investimentos · cartões não incluídos"`.
-   - **Entradas no ciclo** — `cycleTotals.entradas`, trend vs ciclo anterior.
-   - **Saídas no ciclo** — `cycleTotals.saidas`, trend.
-   - **Resultado do ciclo** — `cycleTotals.saldo`, trend, cor verde/vermelha.
-
-   Nova função utilitária no `FinanceContext`: `netWorth` calculado a partir de `accounts`:
-   ```ts
-   const netWorth = useMemo(() => {
-     return accounts.reduce((sum, a) => {
-       const type = (a.type ?? "").toUpperCase();
-       if (type === "CREDIT") return sum;        // ignora cartões
-       const invested = a.automaticallyInvestedBalance ?? 0;   // novo campo
-       return sum + (a.balance ?? 0) + invested;
-     }, 0);
-   }, [accounts]);
-   ```
-   Para isso adicionar `automatically_invested_balance` no SELECT de `pluggy_accounts` e no tipo `FinanceAccount`. Hoje a coluna existe na tabela mas não é trazida.
-
-3. **Card grande "Resultado do ciclo"** (ocupa col-span-2 no lg) — gráfico de área com **entradas (verde)** e **saídas (vermelha)** ao longo dos dias do ciclo. Componente Recharts `AreaChart` com 2 séries empilhadas. Vazio: mensagem clara, sem skeleton fake.
-
-4. **Card "Despesas por categoria"** (col 3 no lg) — donut Recharts já existe; manter, mas renomear título para "Principais categorias do ciclo" e mostrar legenda das **top 4** com **valor + % do total**. Click eventualmente leva para `/app/categorizacao` (link "Ver detalhes →" no header).
-
-5. **Card "Orçamentos no mês"** (col-span-2 no lg) — lista compacta de até 4 `budgetProgress`, ordenados pelos mais críticos (over → alert → ok). Cada linha: ícone, nome, barra (`Progress`), `R$ gasto / R$ limite`, badge de status. Vazio: CTA "Definir orçamentos" → `/app/categorizacao`.
-
-6. **Card "Faturas do mês"** (col 3) — usando `bills` filtrados pelo ciclo atual:
-   - Total agregado em destaque.
-   - Lista de até 3 cartões com nome (do `accounts` via `pluggyAccountId`) + valor da fatura atual.
-   - Link "Ver todas →" para `/app/faturas`.
-   - Vazio: "Nenhuma fatura em aberto neste mês."
-
-7. **Card "Movimentações recentes"** (full width) — já existe; manter mas:
-   - Top 8 transações.
-   - Badge da categoria (cor de `CATEGORY_COLORS`) próxima ao nome — visual igual à referência.
-   - Mobile: layout vertical (descrição em cima, badge + valor embaixo).
-
-### 2.2. Otimização mobile
-
-- Todos os cards: `p-4 md:p-6`, títulos `text-sm md:text-base`, números `text-xl md:text-2xl`.
-- KPIs: grid `grid-cols-2 lg:grid-cols-4`, ícones menores no mobile (`h-3.5 md:h-4`).
-- Gráficos: `height={180}` no mobile, `height={240}` no md+. Donut com `innerRadius={45}` no mobile.
-- Lista de transações: hover só no md+; no mobile `divide-y divide-border` com `py-3` para toque confortável.
-- Aviso de sincronização (texto pequeno) no rodapé do dashboard:
-  > _"Atualizamos seus dados automaticamente 2× ao dia (00:00 e 12:00 BRT)."_
-
-### 2.3. Itens removidos do dashboard atual
-
-- Card "Evolução do saldo (Aguardando dados)" → substituído pelo card de Resultado do ciclo (tem dado real desde já).
-- Card "Receitas vs Despesas (Comparativo mensal)" → também placeholder; será reaproveitado em iteração futura.
-- Card "Insights com IA" → fora do escopo desta entrega; remover por agora para não poluir.
-
-> Sobre **Faturas no dashboard**: você não respondeu na pergunta, mas como a referência destaca esse bloco e ele agrega muito valor (você já tem cartões conectados), vou **incluir** o card. Se preferir um dashboard ainda mais enxuto, basta pedir e ele sai numa próxima iteração.
-
----
-
-## 3. Arquivos afetados
-
-| Arquivo | Mudança |
-|---|---|
-| `supabase/migrations/<novo>.sql` | Cria `trigger_pluggy_sync_all()`, habilita `pg_cron`/`pg_net` |
-| `supabase/functions/pluggy-sync-data/index.ts` | Aceita chamada via service role (cron); resolve `user_id` direto do item |
-| `supabase/functions/pluggy-sync-item/` | **Apagar** pasta (não há mais consumidor) |
-| `supabase/config.toml` | Remove bloco `[functions.pluggy-sync-item]` |
-| `src/pages/app/Conexoes.tsx` | Remove `handleSync`, botão "Sincronizar"; adiciona aviso de sync automática 2×/dia |
-| `src/pages/app/Dashboard.tsx` | Reescrita: KPIs (Patrimônio + ciclo), Resultado do ciclo, Categorias, Orçamentos, Faturas, Recentes |
-| `src/contexts/FinanceContext.tsx` | Adiciona `netWorth`, traz `automatically_invested_balance` no SELECT, expõe no `FinanceAccount` |
-| `src/integrations/supabase/types.ts` | Auto-regenerado após migration (não editamos) |
-
-**Insert tool (em separado, com dados do projeto):**
-- Configura `app.settings.sync_url` e `app.settings.service_key`.
-- `cron.schedule` dos dois jobs `0 3 * * *` e `0 15 * * *`.
-
-Sem novas dependências. Sem mudanças nas tabelas (somente seleção de colunas existentes).
+## Observação para o usuário
+Após o fix, o Patrimônio vai mostrar ~R$ 797,31 (765,77 + 15,77 + 15,77 das duas cópias da mesma conta NuBank que vieram de reconexões anteriores). Para chegar exatamente em R$ 765,77 precisamos limpar contas órfãs — me avise se quer que eu trate isso em seguida.
