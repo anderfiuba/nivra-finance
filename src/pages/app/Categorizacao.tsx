@@ -229,21 +229,7 @@ const Categorizacao = () => {
         </p>
       </div>
 
-      <Tabs defaultValue="categorias">
-        <TabsList>
-          <TabsTrigger value="categorias">Por categoria</TabsTrigger>
-          <TabsTrigger value="pendentes">
-            Pendentes
-            {semCategoriaCount > 0 && (
-              <span className="ml-2 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-accent-foreground">
-                {semCategoriaCount}
-              </span>
-            )}
-          </TabsTrigger>
-        </TabsList>
-
-        {/* ========== Aba Por categoria ========== */}
-        <TabsContent value="categorias" className="space-y-4">
+      <div className="space-y-4">
           {/* Header: mês + total */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <MonthSelector months={months} value={monthKey} onChange={setMonthKey} />
