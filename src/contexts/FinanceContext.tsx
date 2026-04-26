@@ -42,6 +42,8 @@ export interface FinanceAccount {
   cardBrand: string | null;
   cardNumberLast4: string | null;
   currency: string;
+  /** Saldo automaticamente investido (poupança/CDB do banco). */
+  automaticallyInvestedBalance: number | null;
   /** Logo do conector (vinda de pluggy_items). */
   connectorImageUrl: string | null;
   /** Cor primária do conector (hex sem #). */
@@ -136,6 +138,8 @@ interface FinanceContextValue {
   accounts: FinanceAccount[];
   items: PluggyItemSummary[];
   totalBalance: number;
+  /** Patrimônio = saldo de contas BANK + saldos investidos. Cartões não entram. */
+  netWorth: number;
   isLoading: boolean;
   refresh: () => Promise<void>;
   /** Catálogo de categorias da Pluggy (PT-BR), ordenado por categoria pai. */
@@ -254,7 +258,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         supabase
           .from("pluggy_accounts")
           .select(
-            "id,pluggy_account_id,pluggy_item_id,name,marketing_name,type,subtype,balance,currency,credit_limit,available_credit_limit,balance_due_date,balance_close_date,minimum_payment,card_brand,card_number_last4",
+            "id,pluggy_account_id,pluggy_item_id,name,marketing_name,type,subtype,balance,currency,credit_limit,available_credit_limit,balance_due_date,balance_close_date,minimum_payment,card_brand,card_number_last4,automatically_invested_balance",
           )
           .order("name", { ascending: true }),
         supabase
@@ -342,6 +346,10 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           cardBrand: a.card_brand,
           cardNumberLast4: a.card_number_last4,
           currency: a.currency,
+          automaticallyInvestedBalance:
+            a.automatically_invested_balance !== null && a.automatically_invested_balance !== undefined
+              ? Number(a.automatically_invested_balance)
+              : null,
           connectorImageUrl: itemMeta?.connectorImageUrl ?? null,
           connectorPrimaryColor: itemMeta?.connectorPrimaryColor ?? null,
           connectorName: itemMeta?.connectorName ?? null,
