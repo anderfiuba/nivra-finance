@@ -445,8 +445,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       });
       setTransactions(txs);
 
-      setBills(
-        (billData ?? []).map((b) => ({
+      const baseBills = (billData ?? []).map((b) => ({
           id: b.id,
           pluggyBillId: b.pluggy_bill_id,
           pluggyAccountId: b.pluggy_account_id,
@@ -457,8 +456,16 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           minimumPaymentAmount: b.minimum_payment_amount !== null ? Number(b.minimum_payment_amount) : null,
           allowsInstallments: b.allows_installments,
           paid: !!b.paid,
-        })),
-      );
+        }));
+      const billsWithInfer: FinanceBill[] = baseBills.map((b) => {
+        const inferred = !b.paid && inferBillPaid(b, txs);
+        return {
+          ...b,
+          effectivePaid: b.paid || inferred,
+          paidInferred: inferred,
+        };
+      });
+      setBills(billsWithInfer);
 
       setCategoryBudgets(
         (budgetData ?? []).map((b) => ({
