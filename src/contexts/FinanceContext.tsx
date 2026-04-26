@@ -914,26 +914,17 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   }, [accounts, transactions]);
 
   /**
-   * Agrega gastos do mês civil (chave YYYY-MM) por categoria pai → filhas.
-   * Resultado contém apenas categorias com gasto > 0 (sob demanda).
+   * Núcleo de agregação: dado um intervalo [startMs, endMs], devolve total e itens
+   * por categoria pai → filhas (apenas categorias com gasto > 0).
    */
-  const monthlyCategoryAggregates = useCallback(
-    (monthKey: string) => {
-      // mês civil
-      const m = /^(\d{4})-(\d{2})$/.exec(monthKey);
-      if (!m) return { total: 0, items: [] };
-      const year = Number(m[1]);
-      const month = Number(m[2]) - 1;
-      const start = new Date(year, month, 1, 0, 0, 0, 0).getTime();
-      const end = new Date(year, month + 1, 0, 23, 59, 59, 999).getTime();
-
-      // map: parentLabel -> { total, children: Map(childLabel -> spent) }
+  const aggregateExpensesInRange = useCallback(
+    (startMs: number, endMs: number) => {
       const parents = new Map<string, { spent: number; children: Map<string, number> }>();
       let total = 0;
       for (const t of transactions) {
         if (t.type !== "saida") continue;
         const ts = new Date(t.date).getTime();
-        if (Number.isNaN(ts) || ts < start || ts > end) continue;
+        if (Number.isNaN(ts) || ts < startMs || ts > endMs) continue;
         const parentLabel = (t.category || "").trim() || "Outros";
         if (!isExpenseCategory(parentLabel)) continue;
         const childLabel = (t.categoryChildLabel || "").trim() || `Outros · ${parentLabel}`;
@@ -944,7 +935,6 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         parents.set(parentLabel, entry);
         total += v;
       }
-
       const items: CategoryMonthlyAgg[] = Array.from(parents.entries())
         .map(([parentLabel, data]) => ({
           parentLabel,
@@ -960,17 +950,53 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
             .sort((a, b) => b.spent - a.spent),
         }))
         .sort((a, b) => b.spent - a.spent);
-
       return { total, items };
     },
     [transactions],
   );
 
-  // Progresso de orçamentos — calcula no MÊS CIVIL CORRENTE, suportando pai e filha.
+  /** Mantido por compatibilidade (Dashboard, etc.). */
+  const monthlyCategoryAggregates = useCallback(
+    (monthKey: string) => {
+      const m = /^(\d{4})-(\d{2})$/.exec(monthKey);
+      if (!m) return { total: 0, items: [] };
+      const year = Number(m[1]);
+      const month = Number(m[2]) - 1;
+      const start = new Date(year, month, 1, 0, 0, 0, 0).getTime();
+      const end = new Date(year, month + 1, 0, 23, 59, 59, 999).getTime();
+      return aggregateExpensesInRange(start, end);
+    },
+    [aggregateExpensesInRange],
+  );
+
+  /**
+   * Agrega gastos do CICLO FINANCEIRO do usuário. A chave é o YYYY-MM-DD da data
+   * final do ciclo (mesmo formato emitido por `lastNCycles`).
+   */
+  const cycleCategoryAggregates = useCallback(
+    (cycleEndKey: string) => {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(cycleEndKey);
+      if (!m) return { total: 0, items: [] };
+      const year = Number(m[1]);
+      const month = Number(m[2]) - 1;
+      const day = Number(m[3]);
+      // Usa o dia do meio para evitar borda — getCycleRange resolve.
+      const ref = new Date(year, month, day, 12, 0, 0, 0);
+      const range = getCycleRange(cycleDay, ref);
+      return aggregateExpensesInRange(range.start.getTime(), range.end.getTime());
+    },
+    [aggregateExpensesInRange, cycleDay],
+  );
+
+  const lastCycles = useCallback(
+    (n: number) => lastNCycles(n, cycleDay, REFERENCE_DATE),
+    [cycleDay],
+  );
+
+  // Progresso de orçamentos — usa o CICLO FINANCEIRO CORRENTE definido pelo usuário.
   const budgetProgress = useMemo<BudgetProgress[]>(() => {
-    const now = new Date();
-    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-    const agg = monthlyCategoryAggregates(monthKey);
+    const range = getCycleRange(cycleDay, REFERENCE_DATE);
+    const agg = aggregateExpensesInRange(range.start.getTime(), range.end.getTime());
     const parentSpent = new Map<string, number>();
     const childSpent = new Map<string, number>(); // chave: `${parent}::${child}`
     for (const item of agg.items) {
@@ -999,7 +1025,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         parentCategoryLabel: b.parentCategoryLabel,
       };
     });
-  }, [categoryBudgets, monthlyCategoryAggregates]);
+  }, [categoryBudgets, aggregateExpensesInRange, cycleDay]);
 
   const budgetAlerts = useMemo(
     () => budgetProgress.filter((b) => b.status !== "ok").length,
