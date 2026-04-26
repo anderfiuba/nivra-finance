@@ -939,8 +939,10 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     return accounts.reduce((sum, a) => {
       const type = (a.type ?? "").toUpperCase();
       if (type === "CREDIT") return sum;
-      const invested = a.automaticallyInvestedBalance ?? 0;
-      return sum + (a.balance ?? 0) + invested;
+      // IMPORTANTE: o `balance` retornado pelo Pluggy para contas BANK JÁ inclui
+      // o `automatically_invested_balance` (que é apenas a parcela do saldo que
+      // está rendendo). Somar os dois duplicaria o valor — usar só `balance`.
+      return sum + (a.balance ?? 0);
     }, 0);
   }, [accounts]);
 
@@ -971,6 +973,12 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     cycleTotals,
     previousCycleTotals,
     expensesByCategoryCycle,
+    monthTransactions,
+    monthTotals,
+    previousMonthTotals,
+    expensesByCategoryMonth,
+    currentMonthLabel,
+    patrimonyHistory,
     bills,
     categoryBudgets,
     budgetProgress,
