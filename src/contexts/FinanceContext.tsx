@@ -183,6 +183,10 @@ interface FinanceContextValue {
   currentMonthLabel: string;
   /** Série diária do patrimônio nos últimos N dias (default 90). Crescente. */
   patrimonyHistory: { date: string; value: number }[];
+  /** Verdadeiro quando o histórico precisou ser truncado/clampado por falta de dados confiáveis. */
+  patrimonyHistoryIncomplete: boolean;
+  /** IDs Pluggy de contas excluídas do cálculo retroativo (saldo zero + movimento recente). */
+  patrimonyExcludedAccounts: string[];
   // Faturas
   bills: FinanceBill[];
   // Orçamentos
