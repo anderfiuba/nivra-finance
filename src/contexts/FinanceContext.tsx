@@ -93,6 +93,12 @@ export interface CategoryBudget {
   parentCategoryLabel: string | null;
 }
 
+export interface TotalBudget {
+  id: string;
+  monthlyLimit: number;
+  alertThreshold: number;
+}
+
 export interface CardCycleSetting {
   pluggyAccountId: string;
   closingDay: number | null;
