@@ -701,15 +701,20 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     [previousCycleTransactions],
   );
 
+  // Filtro comum: ignora transferências e pagamento de cartão (não são despesa real).
+  const isExpenseCategory = (cat: string) => {
+    if (!cat) return false;
+    if (/^Transfer/i.test(cat) || /transfer/i.test(cat)) return false;
+    if (/Credit card payment/i.test(cat) || /cart[aã]o de cr[eé]dito/i.test(cat)) return false;
+    return true;
+  };
+
   const expensesByCategoryCycle = useMemo(() => {
     const map = new Map<string, number>();
     for (const t of cycleTransactions) {
       if (t.type !== "saida") continue;
       const cat = t.category || "Outros";
-      // Não computa transferências/pagamento de cartão como despesa real.
-      if (/^Transfer/i.test(cat) || /transfer/i.test(cat) || /Credit card payment/i.test(cat) || /cart[aã]o de cr[eé]dito/i.test(cat)) {
-        continue;
-      }
+      if (!isExpenseCategory(cat)) continue;
       map.set(cat, (map.get(cat) ?? 0) + Math.abs(t.value));
     }
     return Array.from(map.entries())
@@ -721,15 +726,76 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       .sort((a, b) => b.value - a.value);
   }, [cycleTransactions]);
 
-  // Progresso de orçamentos: como toda transação já é resolvida para a
-  // categoria PAI no `effectiveCategory`, basta cruzar pelo rótulo direto.
+  /**
+   * Agrega gastos do mês civil (chave YYYY-MM) por categoria pai → filhas.
+   * Resultado contém apenas categorias com gasto > 0 (sob demanda).
+   */
+  const monthlyCategoryAggregates = useCallback(
+    (monthKey: string) => {
+      // mês civil
+      const m = /^(\d{4})-(\d{2})$/.exec(monthKey);
+      if (!m) return { total: 0, items: [] };
+      const year = Number(m[1]);
+      const month = Number(m[2]) - 1;
+      const start = new Date(year, month, 1, 0, 0, 0, 0).getTime();
+      const end = new Date(year, month + 1, 0, 23, 59, 59, 999).getTime();
+
+      // map: parentLabel -> { total, children: Map(childLabel -> spent) }
+      const parents = new Map<string, { spent: number; children: Map<string, number> }>();
+      let total = 0;
+      for (const t of transactions) {
+        if (t.type !== "saida") continue;
+        const ts = new Date(t.date).getTime();
+        if (Number.isNaN(ts) || ts < start || ts > end) continue;
+        const parentLabel = (t.category || "").trim() || "Outros";
+        if (!isExpenseCategory(parentLabel)) continue;
+        const childLabel = (t.categoryChildLabel || "").trim() || `Outros · ${parentLabel}`;
+        const entry = parents.get(parentLabel) ?? { spent: 0, children: new Map<string, number>() };
+        const v = Math.abs(t.value);
+        entry.spent += v;
+        entry.children.set(childLabel, (entry.children.get(childLabel) ?? 0) + v);
+        parents.set(parentLabel, entry);
+        total += v;
+      }
+
+      const items: CategoryMonthlyAgg[] = Array.from(parents.entries())
+        .map(([parentLabel, data]) => ({
+          parentLabel,
+          parentId: null,
+          spent: data.spent,
+          pctOfTotal: total > 0 ? data.spent / total : 0,
+          children: Array.from(data.children.entries())
+            .map(([label, spent]) => ({
+              label,
+              spent,
+              pctOfParent: data.spent > 0 ? spent / data.spent : 0,
+            }))
+            .sort((a, b) => b.spent - a.spent),
+        }))
+        .sort((a, b) => b.spent - a.spent);
+
+      return { total, items };
+    },
+    [transactions],
+  );
+
+  // Progresso de orçamentos — calcula no MÊS CIVIL CORRENTE, suportando pai e filha.
   const budgetProgress = useMemo<BudgetProgress[]>(() => {
-    const spentMap = new Map<string, number>();
-    for (const e of expensesByCategoryCycle) {
-      spentMap.set(e.name, (spentMap.get(e.name) ?? 0) + e.value);
+    const now = new Date();
+    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const agg = monthlyCategoryAggregates(monthKey);
+    const parentSpent = new Map<string, number>();
+    const childSpent = new Map<string, number>(); // chave: `${parent}::${child}`
+    for (const item of agg.items) {
+      parentSpent.set(item.parentLabel, item.spent);
+      for (const c of item.children) {
+        childSpent.set(`${item.parentLabel}::${c.label}`, c.spent);
+      }
     }
     return categoryBudgets.map((b) => {
-      const spent = spentMap.get(b.categoryLabel) ?? 0;
+      const spent = b.scope === "child" && b.parentCategoryLabel
+        ? (childSpent.get(`${b.parentCategoryLabel}::${b.categoryLabel}`) ?? 0)
+        : (parentSpent.get(b.categoryLabel) ?? 0);
       const ratio = b.monthlyLimit > 0 ? spent / b.monthlyLimit : 0;
       let status: BudgetStatus = "ok";
       if (ratio >= 1) status = "over";
@@ -742,9 +808,11 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         ratio,
         status,
         budgetId: b.id,
+        scope: b.scope,
+        parentCategoryLabel: b.parentCategoryLabel,
       };
     });
-  }, [categoryBudgets, expensesByCategoryCycle]);
+  }, [categoryBudgets, monthlyCategoryAggregates]);
 
   const budgetAlerts = useMemo(
     () => budgetProgress.filter((b) => b.status !== "ok").length,
