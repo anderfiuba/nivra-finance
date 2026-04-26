@@ -14,6 +14,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import { inferBillPaid } from "@/lib/billPayment";
 
 const STORAGE_CYCLE = "nivra:cycleDay:v1";
 // Sempre usa a data atual — sem mock.
@@ -70,6 +71,13 @@ export interface FinanceBill {
   minimumPaymentAmount: number | null;
   allowsInstallments: boolean | null;
   paid: boolean;
+  /**
+   * `paid` original da Pluggy OU inferência local (pagamento detectado nas
+   * transações do mesmo cartão).
+   */
+  effectivePaid: boolean;
+  /** True quando `effectivePaid` veio da inferência (não do Pluggy). */
+  paidInferred: boolean;
 }
 
 export interface CategoryBudget {
