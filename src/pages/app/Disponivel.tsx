@@ -11,6 +11,7 @@ import { formatBRL } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { CategoryBudgetCard } from "@/components/disponivel/CategoryBudgetCard";
 import { CategorySheet } from "@/components/disponivel/CategorySheet";
+import { TotalBudgetCard } from "@/components/disponivel/TotalBudgetCard";
 
 /**
  * Pocket View — "Quanto ainda posso gastar este mês?".
@@ -124,6 +125,9 @@ const Disponivel = () => {
           dia {dayOfMonth} de {totalDays}
         </p>
       </div>
+
+      {/* Limite total — sempre visível (define ou edita). */}
+      <TotalBudgetCard spent={totals.spent} />
 
       {/* Hero: número grande */}
       {isEmpty ? (
