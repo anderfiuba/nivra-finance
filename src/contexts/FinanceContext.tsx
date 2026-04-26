@@ -835,7 +835,13 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   }, [budgetProgress]);
 
   const upsertBudget = useCallback(
-    async (label: string, monthlyLimit: number, alertThreshold: number) => {
+    async (
+      label: string,
+      monthlyLimit: number,
+      alertThreshold: number,
+      scope: "parent" | "child" = "parent",
+      parentCategoryLabel: string | null = null,
+    ) => {
       if (!user) return;
       const { error } = await supabase
         .from("category_budgets")
@@ -845,6 +851,8 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
             category_label: label,
             monthly_limit: monthlyLimit,
             alert_threshold: alertThreshold,
+            scope,
+            parent_category_label: scope === "child" ? parentCategoryLabel : null,
           },
           { onConflict: "user_id,category_label" },
         );
