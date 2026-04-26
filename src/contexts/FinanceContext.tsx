@@ -10,6 +10,9 @@ import {
   getCycleRange,
   getPreviousCycleRange,
   isWithinCycle,
+  lastNCycles,
+  currentCycleBucket,
+  type CycleBucket,
 } from "@/lib/cycle";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -204,6 +207,16 @@ interface FinanceContextValue {
     total: number;
     items: CategoryMonthlyAgg[];
   };
+  /**
+   * Agrega gastos do ciclo financeiro do usuário identificado pela data final
+   * do ciclo (YYYY-MM-DD do `end`). Usa o mesmo cycleDay configurado.
+   */
+  cycleCategoryAggregates: (cycleEndKey: string) => {
+    total: number;
+    items: CategoryMonthlyAgg[];
+  };
+  /** Lista os últimos N ciclos do usuário (mais recente primeiro), incluindo o atual. */
+  lastCycles: (n: number) => CycleBucket[];
   // Configuração de ciclos por cartão (manual)
   cardCycleSettings: Record<string, CardCycleSetting>;
   upsertCardCycle: (pluggyAccountId: string, closingDay: number, dueDay: number) => Promise<void>;
@@ -277,6 +290,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         { data: itemData },
         { data: cycleData },
         { data: totalBudgetData },
+        { data: profileData },
       ] = await Promise.all([
         supabase
           .from("pluggy_accounts")
@@ -318,6 +332,11 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         supabase
           .from("total_budget_settings")
           .select("id,monthly_limit,alert_threshold")
+          .maybeSingle(),
+        supabase
+          .from("profiles")
+          .select("cycle_day")
+          .eq("id", user.id)
           .maybeSingle(),
       ]);
 
@@ -564,6 +583,17 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           : null,
       );
 
+      // Carrega cycle_day do profile do usuário (fonte de verdade — isolado por usuário).
+      if (profileData && typeof profileData.cycle_day === "number") {
+        const day = Math.max(1, Math.min(28, Math.floor(profileData.cycle_day)));
+        setCycleDayState(day);
+        try {
+          window.localStorage.setItem(STORAGE_CYCLE, String(day));
+        } catch {
+          /* noop */
+        }
+      }
+
       const cycleMap: Record<string, CardCycleSetting> = {};
       for (const c of (cycleData ?? [])) {
         cycleMap[c.pluggy_account_id] = {
@@ -623,11 +653,24 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const setCycleDay = useCallback((day: number) => {
-    const safe = Math.max(1, Math.min(28, Math.floor(day)));
-    setCycleDayState(safe);
-    persistCycle(safe);
-  }, [persistCycle]);
+  const setCycleDay = useCallback(
+    (day: number) => {
+      const safe = Math.max(1, Math.min(28, Math.floor(day)));
+      setCycleDayState(safe);
+      persistCycle(safe);
+      // Persiste no profile do usuário para isolar entre dispositivos/sessões.
+      if (user) {
+        supabase
+          .from("profiles")
+          .update({ cycle_day: safe })
+          .eq("id", user.id)
+          .then(({ error }) => {
+            if (error) console.error("setCycleDay persist error", error);
+          });
+      }
+    },
+    [persistCycle, user],
+  );
 
   const patchTx = useCallback((id: string, patch: Partial<Transaction>) => {
     setTransactions((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
@@ -871,26 +914,17 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   }, [accounts, transactions]);
 
   /**
-   * Agrega gastos do mês civil (chave YYYY-MM) por categoria pai → filhas.
-   * Resultado contém apenas categorias com gasto > 0 (sob demanda).
+   * Núcleo de agregação: dado um intervalo [startMs, endMs], devolve total e itens
+   * por categoria pai → filhas (apenas categorias com gasto > 0).
    */
-  const monthlyCategoryAggregates = useCallback(
-    (monthKey: string) => {
-      // mês civil
-      const m = /^(\d{4})-(\d{2})$/.exec(monthKey);
-      if (!m) return { total: 0, items: [] };
-      const year = Number(m[1]);
-      const month = Number(m[2]) - 1;
-      const start = new Date(year, month, 1, 0, 0, 0, 0).getTime();
-      const end = new Date(year, month + 1, 0, 23, 59, 59, 999).getTime();
-
-      // map: parentLabel -> { total, children: Map(childLabel -> spent) }
+  const aggregateExpensesInRange = useCallback(
+    (startMs: number, endMs: number) => {
       const parents = new Map<string, { spent: number; children: Map<string, number> }>();
       let total = 0;
       for (const t of transactions) {
         if (t.type !== "saida") continue;
         const ts = new Date(t.date).getTime();
-        if (Number.isNaN(ts) || ts < start || ts > end) continue;
+        if (Number.isNaN(ts) || ts < startMs || ts > endMs) continue;
         const parentLabel = (t.category || "").trim() || "Outros";
         if (!isExpenseCategory(parentLabel)) continue;
         const childLabel = (t.categoryChildLabel || "").trim() || `Outros · ${parentLabel}`;
@@ -901,7 +935,6 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         parents.set(parentLabel, entry);
         total += v;
       }
-
       const items: CategoryMonthlyAgg[] = Array.from(parents.entries())
         .map(([parentLabel, data]) => ({
           parentLabel,
@@ -917,17 +950,53 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
             .sort((a, b) => b.spent - a.spent),
         }))
         .sort((a, b) => b.spent - a.spent);
-
       return { total, items };
     },
     [transactions],
   );
 
-  // Progresso de orçamentos — calcula no MÊS CIVIL CORRENTE, suportando pai e filha.
+  /** Mantido por compatibilidade (Dashboard, etc.). */
+  const monthlyCategoryAggregates = useCallback(
+    (monthKey: string) => {
+      const m = /^(\d{4})-(\d{2})$/.exec(monthKey);
+      if (!m) return { total: 0, items: [] };
+      const year = Number(m[1]);
+      const month = Number(m[2]) - 1;
+      const start = new Date(year, month, 1, 0, 0, 0, 0).getTime();
+      const end = new Date(year, month + 1, 0, 23, 59, 59, 999).getTime();
+      return aggregateExpensesInRange(start, end);
+    },
+    [aggregateExpensesInRange],
+  );
+
+  /**
+   * Agrega gastos do CICLO FINANCEIRO do usuário. A chave é o YYYY-MM-DD da data
+   * final do ciclo (mesmo formato emitido por `lastNCycles`).
+   */
+  const cycleCategoryAggregates = useCallback(
+    (cycleEndKey: string) => {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(cycleEndKey);
+      if (!m) return { total: 0, items: [] };
+      const year = Number(m[1]);
+      const month = Number(m[2]) - 1;
+      const day = Number(m[3]);
+      // Usa o dia do meio para evitar borda — getCycleRange resolve.
+      const ref = new Date(year, month, day, 12, 0, 0, 0);
+      const range = getCycleRange(cycleDay, ref);
+      return aggregateExpensesInRange(range.start.getTime(), range.end.getTime());
+    },
+    [aggregateExpensesInRange, cycleDay],
+  );
+
+  const lastCycles = useCallback(
+    (n: number) => lastNCycles(n, cycleDay, REFERENCE_DATE),
+    [cycleDay],
+  );
+
+  // Progresso de orçamentos — usa o CICLO FINANCEIRO CORRENTE definido pelo usuário.
   const budgetProgress = useMemo<BudgetProgress[]>(() => {
-    const now = new Date();
-    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-    const agg = monthlyCategoryAggregates(monthKey);
+    const range = getCycleRange(cycleDay, REFERENCE_DATE);
+    const agg = aggregateExpensesInRange(range.start.getTime(), range.end.getTime());
     const parentSpent = new Map<string, number>();
     const childSpent = new Map<string, number>(); // chave: `${parent}::${child}`
     for (const item of agg.items) {
@@ -956,7 +1025,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         parentCategoryLabel: b.parentCategoryLabel,
       };
     });
-  }, [categoryBudgets, monthlyCategoryAggregates]);
+  }, [categoryBudgets, aggregateExpensesInRange, cycleDay]);
 
   const budgetAlerts = useMemo(
     () => budgetProgress.filter((b) => b.status !== "ok").length,
@@ -1163,6 +1232,8 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     upsertTotalBudget,
     deleteTotalBudget,
     monthlyCategoryAggregates,
+    cycleCategoryAggregates,
+    lastCycles,
     cardCycleSettings,
     upsertCardCycle,
   };

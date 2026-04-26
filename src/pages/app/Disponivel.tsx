@@ -19,12 +19,26 @@ import { TotalBudgetCard } from "@/components/disponivel/TotalBudgetCard";
  * Sem poluição: só lista categorias com orçamento OU com gasto real no mês.
  */
 const Disponivel = () => {
-  const { budgetProgress, monthlyCategoryAggregates, currentMonthLabel, categories } = useFinance();
+  const { budgetProgress, cycleCategoryAggregates, lastCycles, currentCycleLabel, categories } =
+    useFinance();
 
+  // Usa o CICLO FINANCEIRO atual configurado pelo usuário.
+  const currentCycle = useMemo(() => lastCycles(1)[0], [lastCycles]);
+  const cycleKey = currentCycle?.key ?? "";
   const now = new Date();
-  const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const dayOfMonth = now.getDate();
-  const totalDays = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const startMs = currentCycle?.start.getTime() ?? now.getTime();
+  const endMs = currentCycle?.end.getTime() ?? now.getTime();
+  const totalCycleDays = Math.max(
+    1,
+    Math.round((endMs - startMs) / (1000 * 60 * 60 * 24)) + 1,
+  );
+  const elapsedDays = Math.max(
+    1,
+    Math.min(
+      totalCycleDays,
+      Math.round((now.getTime() - startMs) / (1000 * 60 * 60 * 24)) + 1,
+    ),
+  );
 
   // Sheet state — única instância, alimentada pela seleção atual.
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -49,7 +63,10 @@ const Disponivel = () => {
     setSheetOpen(true);
   };
 
-  // Totais agregados.
+  // Agregados do CICLO inteiro (todas as categorias, com ou sem orçamento).
+  const cycleAgg = useMemo(() => cycleCategoryAggregates(cycleKey), [cycleCategoryAggregates, cycleKey]);
+
+  // Totais para o card hero (apenas categorias com orçamento).
   const totals = useMemo(() => {
     const limit = budgetProgress.reduce((s, b) => s + b.limit, 0);
     const spent = budgetProgress.reduce((s, b) => s + b.spent, 0);
@@ -68,17 +85,16 @@ const Disponivel = () => {
     });
   }, [budgetProgress]);
 
-  // Categorias com gasto no mês mas sem orçamento — sugestões.
+  // Categorias com gasto no CICLO mas sem orçamento — sugestões.
   const unbudgeted = useMemo(() => {
-    const monthly = monthlyCategoryAggregates(monthKey);
     const labelsWithBudget = new Set(
       budgetProgress.filter((b) => b.scope === "parent").map((b) => b.categoryLabel),
     );
-    return monthly.items
+    return cycleAgg.items
       .filter((it) => !labelsWithBudget.has(it.parentLabel))
       .map((it) => ({ categoryLabel: it.parentLabel, spent: it.spent }))
       .slice(0, 6);
-  }, [budgetProgress, monthlyCategoryAggregates, monthKey]);
+  }, [budgetProgress, cycleAgg]);
 
   // Catálogo de categorias-pai (PT-BR) que ainda não têm orçamento e nem gasto no mês.
   // Permite ao usuário definir limite mesmo sem ter consumido na categoria.
@@ -119,15 +135,15 @@ const Disponivel = () => {
       {/* Header minúsculo */}
       <div className="flex items-baseline justify-between">
         <p className="text-xs uppercase tracking-wider text-muted-foreground">
-          {currentMonthLabel}
+          Ciclo {currentCycleLabel}
         </p>
         <p className="text-xs text-muted-foreground tabular-nums">
-          dia {dayOfMonth} de {totalDays}
+          dia {elapsedDays} de {totalCycleDays}
         </p>
       </div>
 
       {/* Limite total — sempre visível (define ou edita). */}
-      <TotalBudgetCard spent={totals.spent} />
+      <TotalBudgetCard spent={cycleAgg.total} />
 
       {/* Hero: número grande */}
       {isEmpty ? (

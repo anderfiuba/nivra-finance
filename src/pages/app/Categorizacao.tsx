@@ -28,7 +28,6 @@ import {
 } from "lucide-react";
 import { useFinance } from "@/contexts/FinanceContext";
 import { formatBRL } from "@/lib/format";
-import { lastNMonths, currentMonthBucket } from "@/lib/months";
 import { MonthSelector } from "@/components/extrato/MonthSelector";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -39,7 +38,8 @@ const Categorizacao = () => {
   const {
     categories,
     categoryBudgets,
-    monthlyCategoryAggregates,
+    cycleCategoryAggregates,
+    lastCycles,
     upsertBudget,
     deleteBudget,
     totalBudget,
@@ -47,8 +47,15 @@ const Categorizacao = () => {
   } = useFinance();
 
   // ---------- estado ----------
-  const months = useMemo(() => lastNMonths(12), []);
-  const [monthKey, setMonthKey] = useState<string>(currentMonthBucket().key);
+  // Trabalhamos com CICLOS FINANCEIROS do usuário (não meses civis).
+  const cycles = useMemo(() => lastCycles(12), [lastCycles]);
+  const [monthKey, setMonthKey] = useState<string>(cycles[0]?.key ?? "");
+  // Mantém selecionado um ciclo válido se cycleDay mudar.
+  useEffect(() => {
+    if (cycles[0] && !cycles.some((c) => c.key === monthKey)) {
+      setMonthKey(cycles[0].key);
+    }
+  }, [cycles, monthKey]);
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [showAllCategories, setShowAllCategories] = useState(false);
@@ -64,8 +71,11 @@ const Categorizacao = () => {
   const [dlgError, setDlgError] = useState<string | null>(null);
 
   // ---------- derivados ----------
-  const monthly = useMemo(() => monthlyCategoryAggregates(monthKey), [monthlyCategoryAggregates, monthKey]);
-  const monthBucket = useMemo(() => months.find((m) => m.key === monthKey) ?? months[0], [months, monthKey]);
+  const monthly = useMemo(() => cycleCategoryAggregates(monthKey), [cycleCategoryAggregates, monthKey]);
+  const monthBucket = useMemo(
+    () => cycles.find((c) => c.key === monthKey) ?? cycles[0],
+    [cycles, monthKey],
+  );
 
   const parentCategoryLabels = useMemo(() => {
     return categories
@@ -262,7 +272,7 @@ const Categorizacao = () => {
       <div className="space-y-4">
           {/* Header: mês + total */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <MonthSelector months={months} value={monthKey} onChange={setMonthKey} />
+            <MonthSelector months={cycles} value={monthKey} onChange={setMonthKey} />
             <div className="flex items-center gap-3 text-sm">
               <Wallet className="h-4 w-4 text-muted-foreground" />
               <span className="text-muted-foreground">Total gasto:</span>

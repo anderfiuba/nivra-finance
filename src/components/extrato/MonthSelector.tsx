@@ -1,10 +1,14 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { MonthBucket } from "@/lib/months";
+
+interface SelectableBucket {
+  key: string;
+  label: string;
+}
 
 interface MonthSelectorProps {
-  months: MonthBucket[];
+  months: SelectableBucket[];
   value: string;
   onChange: (key: string) => void;
 }
