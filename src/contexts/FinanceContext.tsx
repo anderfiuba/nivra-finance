@@ -18,6 +18,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { inferBillPaid } from "@/lib/billPayment";
+import { buildPatrimonyHistory } from "@/lib/patrimonyHistory";
 
 const STORAGE_CYCLE = "nivra:cycleDay:v1";
 // Sempre usa a data atual — sem mock.
