@@ -47,17 +47,6 @@ export function PocketSummaryCard() {
     };
   }, [budgetProgress, totalBudget, cycleAgg]);
 
-  const top = useMemo(() => {
-    const order: Record<string, number> = { over: 0, alert: 1, ok: 2 };
-    return [...budgetProgress]
-      .sort((a, b) => {
-        const diff = order[a.status] - order[b.status];
-        if (diff !== 0) return diff;
-        return b.ratio - a.ratio;
-      })
-      .slice(0, 3);
-  }, [budgetProgress]);
-
   if (!totals.hasLimit) {
     return (
       <Card className="bg-gradient-card border-border p-4 md:p-5 flex items-center gap-4">
@@ -117,27 +106,6 @@ export function PocketSummaryCard() {
               : "[&>div]:bg-success",
         )}
       />
-
-      {top.length > 0 && (
-        <ul className="mt-4 space-y-2">
-          {top.map((b) => {
-            const pct = Math.min(100, Math.round(b.ratio * 100));
-            const dotClass =
-              b.status === "over"
-                ? "bg-destructive"
-                : b.status === "alert"
-                  ? "bg-warning"
-                  : "bg-success";
-            return (
-              <li key={b.budgetId} className="flex items-center gap-2.5 text-xs">
-                <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", dotClass)} />
-                <span className="flex-1 truncate text-foreground">{b.categoryLabel}</span>
-                <span className="text-muted-foreground tabular-nums shrink-0">{pct}%</span>
-              </li>
-            );
-          })}
-        </ul>
-      )}
     </Card>
   );
 }
