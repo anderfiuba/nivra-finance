@@ -42,6 +42,8 @@ const Categorizacao = () => {
     monthlyCategoryAggregates,
     upsertBudget,
     deleteBudget,
+    totalBudget,
+    parentBudgetsSum,
   } = useFinance();
 
   // ---------- estado ----------
@@ -189,6 +191,19 @@ const Categorizacao = () => {
     }
     if (childrenSum > 0 && limit < childrenSum - 0.001) {
       return `O limite da categoria principal precisa ser pelo menos ${formatBRL(childrenSum)} (soma das subcategorias já definidas).`;
+    }
+    // Valida contra o limite TOTAL definido pelo usuário, se houver.
+    if (totalBudget) {
+      const previousLimit =
+        dlgEditingId
+          ? categoryBudgets.find(
+              (b) => b.id === dlgEditingId && b.scope === "parent",
+            )?.monthlyLimit ?? 0
+          : 0;
+      const projectedSum = parentBudgetsSum - previousLimit + limit;
+      if (projectedSum > totalBudget.monthlyLimit + 0.001) {
+        return `A soma dos limites por categoria (${formatBRL(projectedSum)}) ficaria acima do limite total do mês (${formatBRL(totalBudget.monthlyLimit)}). Aumente o limite total ou reduza este valor.`;
+      }
     }
     return null;
   };
