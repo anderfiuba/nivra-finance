@@ -51,6 +51,8 @@ export type Database = {
           created_at: string
           id: string
           monthly_limit: number
+          parent_category_label: string | null
+          scope: string
           updated_at: string
           user_id: string
         }
@@ -60,6 +62,8 @@ export type Database = {
           created_at?: string
           id?: string
           monthly_limit: number
+          parent_category_label?: string | null
+          scope?: string
           updated_at?: string
           user_id: string
         }
@@ -69,6 +73,8 @@ export type Database = {
           created_at?: string
           id?: string
           monthly_limit?: number
+          parent_category_label?: string | null
+          scope?: string
           updated_at?: string
           user_id?: string
         }
