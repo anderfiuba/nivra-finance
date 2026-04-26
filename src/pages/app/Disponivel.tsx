@@ -139,16 +139,20 @@ const Disponivel = () => {
     [allCatalogParents, defaultLabels],
   );
 
-  // Aplica filtro "apenas com gastos no ciclo" sobre as listas exibidas.
-  const hasSpending = (label: string) => (spentByParent.get(label) ?? 0) > 0;
-  const visibleDefaultLabels = useMemo(
-    () => (onlyWithSpending ? defaultLabels.filter(hasSpending) : defaultLabels),
-    [defaultLabels, onlyWithSpending, spentByParent],
-  );
-  const visibleExtraLabels = useMemo(
-    () => (onlyWithSpending ? extraLabels.filter(hasSpending) : extraLabels),
-    [extraLabels, onlyWithSpending, spentByParent],
-  );
+  // Quando "apenas com gastos" está ativo, ignoramos a separação default/extra
+  // e listamos TODAS as categorias-pai do catálogo que tiveram gasto neste ciclo
+  // (incluindo as que apareceriam só sob o toggle "outras categorias").
+  const labelsWithSpending = useMemo(() => {
+    const set = new Set<string>();
+    for (const l of allCatalogParents) {
+      if ((spentByParent.get(l) ?? 0) > 0) set.add(l);
+    }
+    // Garante categorias com gasto que por algum motivo não estejam no catálogo.
+    for (const [l, v] of spentByParent) {
+      if (v > 0) set.add(l);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [allCatalogParents, spentByParent]);
 
   return (
     <div
