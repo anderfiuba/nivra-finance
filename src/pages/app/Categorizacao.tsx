@@ -272,7 +272,7 @@ const Categorizacao = () => {
       <div className="space-y-4">
           {/* Header: mês + total */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <MonthSelector months={months} value={monthKey} onChange={setMonthKey} />
+            <MonthSelector months={cycles} value={monthKey} onChange={setMonthKey} />
             <div className="flex items-center gap-3 text-sm">
               <Wallet className="h-4 w-4 text-muted-foreground" />
               <span className="text-muted-foreground">Total gasto:</span>
