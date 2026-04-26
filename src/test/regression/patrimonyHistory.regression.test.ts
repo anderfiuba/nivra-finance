@@ -49,9 +49,13 @@ describe("[REG] buildPatrimonyHistory — anti-bug 'patrimônio negativo'", () =
     const accs: PatrimonyAccountInput[] = [
       { pluggyAccountId: "b1", type: "BANK", balance: 100, automaticallyInvestedBalance: 0 },
     ];
-    // Entrada de 5000 enquanto saldo atual é só 100 → rebobinar daria -4900.
+    // Várias entradas no período enquanto saldo atual é só 100 → rebobinação
+    // produz negativo em pontos intermediários (a primeira data ainda fica
+    // dentro da janela porque há dias de dados antes).
     const txs: PatrimonyTransactionInput[] = [
-      { pluggyAccountId: "b1", date: day(-10), type: "entrada", value: 5000 },
+      { pluggyAccountId: "b1", date: day(-2), type: "entrada", value: 5000 },
+      { pluggyAccountId: "b1", date: day(-5), type: "entrada", value: 3000 },
+      { pluggyAccountId: "b1", date: day(-8), type: "entrada", value: 2000 },
     ];
     const r = buildPatrimonyHistory(accs, txs, { referenceDate: REF, days: 30 });
     for (const p of r.points) {
