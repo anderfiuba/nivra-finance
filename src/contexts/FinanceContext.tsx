@@ -277,6 +277,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         { data: itemData },
         { data: cycleData },
         { data: totalBudgetData },
+        { data: profileData },
       ] = await Promise.all([
         supabase
           .from("pluggy_accounts")
