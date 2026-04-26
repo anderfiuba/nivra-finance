@@ -80,6 +80,42 @@ const Categorizacao = () => {
       .sort((a, b) => a.localeCompare(b));
   }, [categories]);
 
+  // Mapa: rótulo da categoria pai → lista de rótulos de subcategorias (filhas) do catálogo Pluggy.
+  // Usado para popular o Select de subcategoria no diálogo de orçamento, evitando erros de digitação.
+  const childLabelsByParentLabel = useMemo(() => {
+    const parentIdToLabel = new Map<string, string>();
+    for (const c of categories) {
+      if (c.parentId === null) {
+        parentIdToLabel.set(c.id, c.descriptionTranslated ?? c.description);
+      }
+    }
+    const map = new Map<string, string[]>();
+    for (const c of categories) {
+      if (!c.parentId) continue;
+      const parentLabel = parentIdToLabel.get(c.parentId);
+      if (!parentLabel) continue;
+      const childLabel = c.descriptionTranslated ?? c.description;
+      const arr = map.get(parentLabel) ?? [];
+      arr.push(childLabel);
+      map.set(parentLabel, arr);
+    }
+    for (const [k, arr] of map) {
+      map.set(k, Array.from(new Set(arr)).sort((a, b) => a.localeCompare(b)));
+    }
+    return map;
+  }, [categories]);
+
+  // Subcategorias disponíveis para o pai selecionado no diálogo. Inclui também quaisquer
+  // rótulos de filhas que apareceram nas transações do mês mas não estão no catálogo.
+  const dlgChildOptions = useMemo(() => {
+    if (!dlgParentLabel) return [] as string[];
+    const fromCatalog = childLabelsByParentLabel.get(dlgParentLabel) ?? [];
+    const fromMonth = (monthly.items.find((i) => i.parentLabel === dlgParentLabel)?.children ?? []).map(
+      (c) => c.label,
+    );
+    return Array.from(new Set([...fromCatalog, ...fromMonth])).sort((a, b) => a.localeCompare(b));
+  }, [childLabelsByParentLabel, monthly.items, dlgParentLabel]);
+
   // Mapas auxiliares para encontrar orçamento por (parent | parent::child)
   const budgetByParent = useMemo(() => {
     const m = new Map<string, typeof categoryBudgets[number]>();
