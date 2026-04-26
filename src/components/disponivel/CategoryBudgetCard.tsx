@@ -21,12 +21,13 @@ interface Props {
  */
 export function CategoryBudgetCard({ progress, unbudgeted, onOpenSheet, onCreateBudget }: Props) {
   if (unbudgeted) {
+    const hasSpend = unbudgeted.spent > 0;
     return (
       <div className="rounded-xl border border-border/60 bg-card/40 p-3.5 min-h-[72px] flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-medium text-foreground truncate">{unbudgeted.categoryLabel}</p>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Sem limite • gastou {formatBRL(unbudgeted.spent)}
+            {hasSpend ? `Sem limite • gastou ${formatBRL(unbudgeted.spent)}` : "Sem limite • sem gastos no mês"}
           </p>
         </div>
         <Button
