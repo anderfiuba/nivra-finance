@@ -420,25 +420,34 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         //   1. Override manual do usuário (`category`) tem prioridade — UI só oferece pais.
         //   2. Senão, resolve `category_id`/`category_pluggy` no catálogo e sobe para o pai.
         //   3. Se o nó já é pai (parent_id null), retorna ele mesmo.
-        const resolveToParent = (
-          node: { id: string; description: string; descriptionTranslated: string | null; parentId: string | null } | null,
-        ): string => {
-          if (!node) return "";
-          const target = node.parentId ? (catById.get(node.parentId) ?? node) : node;
-          return target.descriptionTranslated || target.description;
+        type CatNode = {
+          id: string;
+          description: string;
+          descriptionTranslated: string | null;
+          parentId: string | null;
+          parentDescription: string | null;
         };
+        const labelOf = (n: CatNode | null): string => (n ? (n.descriptionTranslated || n.description) : "");
+        // Resolve o nó original (categoria filha quando aplicável).
+        const originalNode: CatNode | null = (t.category_id && catById.get(t.category_id))
+          || (t.category_pluggy && catByDescription.get(t.category_pluggy))
+          || null;
+        const parentNode: CatNode | null = originalNode
+          ? (originalNode.parentId ? (catById.get(originalNode.parentId) ?? originalNode) : originalNode)
+          : null;
+        const isOriginalAlreadyParent = !!originalNode && originalNode.parentId === null;
+
         let effectiveCategory = "";
         if (t.category && t.category.trim().length > 0) {
           effectiveCategory = t.category;
         } else {
-          const node = (t.category_id && catById.get(t.category_id))
-            || (t.category_pluggy && catByDescription.get(t.category_pluggy))
-            || null;
-          effectiveCategory = resolveToParent(node);
+          effectiveCategory = labelOf(parentNode);
           if (!effectiveCategory && t.category_pluggy) {
             effectiveCategory = t.category_pluggy;
           }
         }
+
+        const childLabel = !isOriginalAlreadyParent ? labelOf(originalNode) : null;
 
         const pending: PendingType | undefined = effectiveCategory === ""
           ? "sem_categoria"
