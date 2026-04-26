@@ -1,5 +1,6 @@
 import { corsHeaders } from "../_shared/cors.ts";
 import { pluggyFetch } from "../_shared/pluggy.ts";
+import { errorResponse } from "../_shared/errors.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 // Recebe { itemId } do frontend após o usuário concluir o Pluggy Connect.
@@ -11,19 +12,13 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
   if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "method_not_allowed" }), {
-      status: 405,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return errorResponse("method_not_allowed");
   }
 
   try {
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return errorResponse("unauthorized");
     }
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -32,19 +27,16 @@ Deno.serve(async (req) => {
     );
     const { data: userData, error: userError } = await supabase.auth.getUser();
     if (userError || !userData.user) {
-      return new Response(JSON.stringify({ error: "unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      return errorResponse("unauthorized", {
+        logContext: "register-item: JWT inválido",
+        logDetails: userError?.message,
       });
     }
     const userId = userData.user.id;
 
     const body = (await req.json()) as { itemId?: string };
     if (!body.itemId) {
-      return new Response(JSON.stringify({ error: "itemId_required" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return errorResponse("bad_request", { message: "itemId é obrigatório." });
     }
 
     // Busca dados do item na Pluggy
@@ -53,11 +45,10 @@ Deno.serve(async (req) => {
     });
     const itemData = await itemRes.json();
     if (!itemRes.ok) {
-      console.error("pluggy-register-item fetch error", itemRes.status, itemData);
-      return new Response(
-        JSON.stringify({ error: "pluggy_item_fetch_failed", details: itemData }),
-        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      return errorResponse("upstream_error", {
+        logContext: "register-item: pluggy fetch failed",
+        logDetails: { status: itemRes.status, body: itemData },
+      });
     }
 
     const row = {
@@ -78,11 +69,10 @@ Deno.serve(async (req) => {
       .upsert(row, { onConflict: "pluggy_item_id" });
 
     if (upsertError) {
-      console.error("pluggy-register-item upsert error", upsertError);
-      return new Response(
-        JSON.stringify({ error: "db_upsert_failed", details: upsertError.message }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      return errorResponse("internal_error", {
+        logContext: "register-item db upsert failed",
+        logDetails: upsertError.message,
+      });
     }
 
     return new Response(JSON.stringify({ ok: true, item: row }), {
@@ -90,11 +80,9 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "unknown_error";
-    console.error("pluggy-register-item exception", message);
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    return errorResponse("internal_error", {
+      logContext: "pluggy-register-item exception",
+      logDetails: err instanceof Error ? err.message : err,
     });
   }
 });

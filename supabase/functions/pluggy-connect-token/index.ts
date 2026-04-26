@@ -1,5 +1,6 @@
 import { corsHeaders } from "../_shared/cors.ts";
 import { pluggyFetch } from "../_shared/pluggy.ts";
+import { errorResponse } from "../_shared/errors.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 // Cria um connect_token efêmero da Pluggy.
@@ -14,11 +15,8 @@ Deno.serve(async (req) => {
 
   try {
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return errorResponse("unauthorized");
     }
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -27,9 +25,9 @@ Deno.serve(async (req) => {
     );
     const { data: userData, error: userError } = await supabase.auth.getUser();
     if (userError || !userData.user) {
-      return new Response(JSON.stringify({ error: "unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      return errorResponse("unauthorized", {
+        logContext: "connect-token: JWT inválido",
+        logDetails: userError?.message,
       });
     }
 
@@ -54,11 +52,10 @@ Deno.serve(async (req) => {
 
     const data = await res.json();
     if (!res.ok) {
-      console.error("pluggy-connect-token error", res.status, data);
-      return new Response(
-        JSON.stringify({ error: "pluggy_connect_token_failed", status: res.status, details: data }),
-        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      return errorResponse("upstream_error", {
+        logContext: "connect-token: pluggy /connect_token failed",
+        logDetails: { status: res.status, body: data },
+      });
     }
 
     return new Response(JSON.stringify({ accessToken: data.accessToken }), {
@@ -66,11 +63,9 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "unknown_error";
-    console.error("pluggy-connect-token exception", message);
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    return errorResponse("internal_error", {
+      logContext: "pluggy-connect-token exception",
+      logDetails: err instanceof Error ? err.message : err,
     });
   }
 });
