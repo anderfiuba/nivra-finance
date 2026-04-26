@@ -329,12 +329,12 @@ const Categorizacao = () => {
                       open={isOpen}
                       onOpenChange={(o) => setExpanded((p) => ({ ...p, [item.parentLabel]: o }))}
                     >
-                      <div className="p-4 md:p-5 space-y-3">
-                        <div className="flex items-start gap-3">
+                      <div className="p-3.5 md:p-5 space-y-3 rounded-lg border border-border/60 bg-card/40 md:rounded-none md:border-0 md:bg-transparent">
+                        <div className="flex items-start gap-2 md:gap-3">
                           <CollapsibleTrigger asChild>
                             <button
                               type="button"
-                              className="flex items-start gap-3 flex-1 min-w-0 text-left group"
+                              className="flex items-start gap-2 md:gap-3 flex-1 min-w-0 text-left group"
                               aria-label={`Expandir ${item.parentLabel}`}
                             >
                               <ChevronRight
@@ -373,10 +373,10 @@ const Categorizacao = () => {
                             </button>
                           </CollapsibleTrigger>
                           <div className="text-right shrink-0">
-                            <p className="text-sm font-semibold tabular-nums text-foreground">
+                            <p className="text-sm font-semibold tabular-nums text-foreground whitespace-nowrap">
                               {formatBRL(item.spent)}
                             </p>
-                            <div className="mt-1 flex items-center gap-1 justify-end">
+                            <div className="mt-1 hidden md:flex items-center gap-1 justify-end">
                               {parentBudget ? (
                                 <>
                                   <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => openEditBudget(parentBudget.id)}>
@@ -406,6 +406,34 @@ const Categorizacao = () => {
                           </div>
                         </div>
                         <Progress value={visualPct} className={`h-1.5 ${barTone}`} />
+                        {/* Ações em dispositivos pequenos: ficam abaixo da barra para não apertar o título */}
+                        <div className="flex md:hidden items-center gap-1 justify-end">
+                          {parentBudget ? (
+                            <>
+                              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => openEditBudget(parentBudget.id)}>
+                                <PencilLine className="h-3 w-3 mr-1" /> Editar limite
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                onClick={() => removeBudget(parentBudget.id)}
+                                aria-label="Remover orçamento"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs"
+                              onClick={() => openNewBudget("parent", item.parentLabel)}
+                            >
+                              <Plus className="h-3 w-3 mr-1" /> Definir limite
+                            </Button>
+                          )}
+                        </div>
 
                         <CollapsibleContent>
                           <div className="mt-3 ml-7 space-y-2 border-l border-border pl-4">
