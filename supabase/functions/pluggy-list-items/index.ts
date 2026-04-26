@@ -1,6 +1,7 @@
 import { corsHeaders } from "../_shared/cors.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { pluggyFetch } from "../_shared/pluggy.ts";
+import { errorResponse } from "../_shared/errors.ts";
 
 // Lista os items conectados do usuário autenticado.
 // O user é derivado do JWT — NUNCA aceitamos clientUserId do body/query.
@@ -13,11 +14,8 @@ Deno.serve(async (req) => {
 
   try {
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return errorResponse("unauthorized");
     }
     // Cliente com auth do usuário — RLS aplica filtro automático.
     const supabase = createClient(
@@ -27,9 +25,9 @@ Deno.serve(async (req) => {
     );
     const { data: userData, error: userError } = await supabase.auth.getUser();
     if (userError || !userData.user) {
-      return new Response(JSON.stringify({ error: "unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      return errorResponse("unauthorized", {
+        logContext: "list-items: JWT inválido",
+        logDetails: userError?.message,
       });
     }
 
@@ -39,10 +37,9 @@ Deno.serve(async (req) => {
       .order("created_at", { ascending: false });
 
     if (dbError) {
-      console.error("pluggy-list-items db error", dbError);
-      return new Response(JSON.stringify({ error: "db_error", details: dbError.message }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      return errorResponse("internal_error", {
+        logContext: "list-items db error",
+        logDetails: dbError.message,
       });
     }
 
@@ -85,11 +82,9 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "unknown_error";
-    console.error("pluggy-list-items exception", message);
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    return errorResponse("internal_error", {
+      logContext: "pluggy-list-items exception",
+      logDetails: err instanceof Error ? err.message : err,
     });
   }
 });

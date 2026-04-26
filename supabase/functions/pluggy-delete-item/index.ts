@@ -1,5 +1,6 @@
 import { corsHeaders } from "../_shared/cors.ts";
 import { pluggyFetch } from "../_shared/pluggy.ts";
+import { errorResponse } from "../_shared/errors.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 // Remove um item Pluggy do usuário:
@@ -15,19 +16,13 @@ Deno.serve(async (req) => {
   }
 
   if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "method_not_allowed" }), {
-      status: 405,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return errorResponse("method_not_allowed");
   }
 
   try {
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return errorResponse("unauthorized");
     }
 
     // Cliente com o JWT do usuário (para checar posse via RLS).
@@ -38,9 +33,9 @@ Deno.serve(async (req) => {
     );
     const { data: userData, error: userError } = await supabaseUser.auth.getUser();
     if (userError || !userData.user) {
-      return new Response(JSON.stringify({ error: "unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      return errorResponse("unauthorized", {
+        logContext: "delete-item: JWT inválido",
+        logDetails: userError?.message,
       });
     }
     const userId = userData.user.id;
@@ -48,10 +43,7 @@ Deno.serve(async (req) => {
     const body = (await req.json().catch(() => ({}))) as { itemId?: string };
     const itemId = typeof body.itemId === "string" ? body.itemId.trim() : "";
     if (!itemId) {
-      return new Response(JSON.stringify({ error: "itemId_required" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return errorResponse("bad_request", { message: "itemId é obrigatório." });
     }
 
     // Verifica posse: RLS bloqueia se o item não for do usuário.
@@ -61,9 +53,9 @@ Deno.serve(async (req) => {
       .eq("pluggy_item_id", itemId)
       .maybeSingle();
     if (ownErr || !ownItem) {
-      return new Response(JSON.stringify({ error: "item_not_found_or_forbidden" }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      return errorResponse("not_found", {
+        logContext: "delete-item: item não pertence ao usuário",
+        logDetails: { userId, itemId, err: ownErr?.message },
       });
     }
 
@@ -73,11 +65,10 @@ Deno.serve(async (req) => {
     });
     if (!res.ok && res.status !== 404 && res.status !== 410) {
       const details = await res.text();
-      console.error("pluggy-delete-item Pluggy error", res.status, details);
-      return new Response(
-        JSON.stringify({ error: "pluggy_delete_failed", status: res.status, details }),
-        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      return errorResponse("upstream_error", {
+        logContext: "delete-item: pluggy DELETE failed",
+        logDetails: { status: res.status, body: details },
+      });
     }
 
     // 2) Limpa nosso banco. Service role + filtro user_id (defense in depth).
@@ -102,11 +93,10 @@ Deno.serve(async (req) => {
       if (error) errors.push({ table, message: error.message });
     }
     if (errors.length > 0) {
-      console.error("pluggy-delete-item db cleanup errors", errors);
-      return new Response(
-        JSON.stringify({ error: "db_cleanup_failed", details: errors }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      return errorResponse("internal_error", {
+        logContext: "delete-item: db cleanup errors",
+        logDetails: errors,
+      });
     }
 
     return new Response(JSON.stringify({ ok: true }), {
@@ -114,11 +104,9 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "unknown_error";
-    console.error("pluggy-delete-item exception", message);
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    return errorResponse("internal_error", {
+      logContext: "pluggy-delete-item exception",
+      logDetails: err instanceof Error ? err.message : err,
     });
   }
 });

@@ -1,5 +1,6 @@
 import { corsHeaders } from "../_shared/cors.ts";
 import { pluggyFetch } from "../_shared/pluggy.ts";
+import { errorResponse } from "../_shared/errors.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 // Sincroniza accounts + transactions + bills + categorias de um item Pluggy.
@@ -15,10 +16,17 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 //     category_pluggy. O campo `category` permanece reservado para o override
 //     manual feito pelo usuário.
 //
-// Segurança:
-//   1. Exige JWT (verify_jwt=true).
-//   2. Confirma posse do item via RLS antes de qualquer fetch na Pluggy.
-//   3. Faz upsert via service role SEMPRE marcando user_id = auth.uid().
+// Segurança (HARDENED — pós-auditoria):
+//   1. Dois caminhos mutuamente exclusivos de autenticação:
+//      a) Caller cron: header `X-Cron-Secret` = CRON_SHARED_SECRET (Vault).
+//         Não exige JWT. Resolve user_id do item via service role.
+//      b) Caller usuário: JWT válido. Posse do item via RLS.
+//      JWT inválido OU secret errado → 401 imediato. ELIMINADO o bypass
+//      anterior `source: "cron"` no body.
+//   2. NUNCA persistimos SUPABASE_SERVICE_ROLE_KEY no banco. Cron usa
+//      shared secret dedicado e rotacionável.
+//   3. Erros internos só em console.error; cliente recebe códigos curtos
+//      via _shared/errors.ts.
 
 interface PluggyAccount {
   id: string;
@@ -184,27 +192,13 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
   if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "method_not_allowed" }), {
-      status: 405,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return errorResponse("method_not_allowed");
   }
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const body = (await req.json().catch(() => ({}))) as { itemId?: string; source?: string };
+    const body = (await req.json().catch(() => ({}))) as { itemId?: string };
     if (!body.itemId) {
-      return new Response(JSON.stringify({ error: "itemId_required" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return errorResponse("bad_request", { message: "itemId é obrigatório." });
     }
 
     // Cliente service role para upsert + ler settings.
@@ -213,64 +207,63 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // Self-heal: garante que app_settings.service_key esteja correta para o cron.
-    // Roda barato: só faz upsert se diferente.
-    try {
-      const { data: settingRow } = await adminClient
-        .from("app_settings")
-        .select("value")
-        .eq("key", "service_key")
-        .maybeSingle();
-      const currentKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-      if (currentKey && (!settingRow || settingRow.value !== currentKey)) {
-        await adminClient.from("app_settings").upsert(
-          { key: "service_key", value: currentKey, updated_at: new Date().toISOString() },
-          { onConflict: "key" },
-        );
-      }
-    } catch (e) {
-      console.warn("app_settings self-heal skipped", e);
-    }
+    // ===== Autenticação (caminhos mutuamente exclusivos) =====
+    const cronSecretHeader = req.headers.get("X-Cron-Secret");
+    const cronSecretEnv = Deno.env.get("CRON_SHARED_SECRET");
+    const isCronCall =
+      typeof cronSecretHeader === "string"
+      && cronSecretHeader.length > 0
+      && typeof cronSecretEnv === "string"
+      && cronSecretEnv.length > 0
+      && cronSecretHeader === cronSecretEnv;
 
-    // Resolve user_id do item (suporta caller via user JWT OU cron via service role).
     let userId: string | null = null;
-    if (body.source !== "cron") {
-      // Fluxo interativo: valida JWT do usuário e confirma posse via RLS.
-      const userClient = createClient(
-        Deno.env.get("SUPABASE_URL")!,
-        Deno.env.get("SUPABASE_ANON_KEY")!,
-        { global: { headers: { Authorization: authHeader } } },
-      );
-      const { data: userData, error: userError } = await userClient.auth.getUser();
-      if (!userError && userData.user) {
-        userId = userData.user.id;
-        const { data: ownItem } = await userClient
-          .from("pluggy_items")
-          .select("pluggy_item_id")
-          .eq("pluggy_item_id", body.itemId)
-          .maybeSingle();
-        if (!ownItem) {
-          return new Response(JSON.stringify({ error: "item_not_found_or_forbidden" }), {
-            status: 403,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
-      }
-    }
-    if (!userId) {
-      // Caller cron (ou fallback): resolve user_id direto na tabela via service role.
+
+    if (isCronCall) {
+      // Cron interno: resolve user_id do item via service role.
       const { data: itemRow, error: itemRowErr } = await adminClient
         .from("pluggy_items")
         .select("user_id")
         .eq("pluggy_item_id", body.itemId)
         .maybeSingle();
       if (itemRowErr || !itemRow) {
-        return new Response(JSON.stringify({ error: "item_not_found" }), {
-          status: 404,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        return errorResponse("not_found", {
+          logContext: "cron sync: item not found",
+          logDetails: { itemId: body.itemId, err: itemRowErr?.message },
         });
       }
       userId = itemRow.user_id as string;
+    } else {
+      // Caller usuário: exige JWT válido. Sem fallback.
+      const authHeader = req.headers.get("Authorization");
+      if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        return errorResponse("unauthorized");
+      }
+      const userClient = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_ANON_KEY")!,
+        { global: { headers: { Authorization: authHeader } } },
+      );
+      const { data: userData, error: userError } = await userClient.auth.getUser();
+      if (userError || !userData.user) {
+        return errorResponse("unauthorized", {
+          logContext: "user JWT inválido",
+          logDetails: userError?.message,
+        });
+      }
+      userId = userData.user.id;
+      // Posse do item via RLS — bloqueia cross-tenant.
+      const { data: ownItem } = await userClient
+        .from("pluggy_items")
+        .select("pluggy_item_id")
+        .eq("pluggy_item_id", body.itemId)
+        .maybeSingle();
+      if (!ownItem) {
+        return errorResponse("forbidden", {
+          logContext: "user tentou acessar item de outro user",
+          logDetails: { userId, itemId: body.itemId },
+        });
+      }
     }
 
     // 1. Atualiza status do item
@@ -279,11 +272,10 @@ Deno.serve(async (req) => {
     });
     const itemData = await itemRes.json();
     if (!itemRes.ok) {
-      console.error("pluggy-sync-data item fetch error", itemRes.status, itemData);
-      return new Response(
-        JSON.stringify({ error: "pluggy_item_fetch_failed", details: itemData }),
-        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      return errorResponse("upstream_error", {
+        logContext: "pluggy /items fetch failed",
+        logDetails: { status: itemRes.status, body: itemData },
+      });
     }
 
     // 2. Busca accounts
@@ -292,11 +284,10 @@ Deno.serve(async (req) => {
     });
     const accJson = await accRes.json();
     if (!accRes.ok) {
-      console.error("pluggy-sync-data accounts error", accRes.status, accJson);
-      return new Response(
-        JSON.stringify({ error: "pluggy_accounts_fetch_failed", details: accJson }),
-        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      return errorResponse("upstream_error", {
+        logContext: "pluggy /accounts fetch failed",
+        logDetails: { status: accRes.status, body: accJson },
+      });
     }
     const accounts: PluggyAccount[] = accJson.results ?? [];
 
@@ -344,11 +335,10 @@ Deno.serve(async (req) => {
         .from("pluggy_accounts")
         .upsert(accountRows, { onConflict: "pluggy_account_id" });
       if (accUpsertErr) {
-        console.error("upsert pluggy_accounts failed", accUpsertErr);
-        return new Response(
-          JSON.stringify({ error: "db_accounts_upsert_failed", details: accUpsertErr.message }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
+        return errorResponse("internal_error", {
+          logContext: "db upsert accounts failed",
+          logDetails: accUpsertErr.message,
+        });
       }
     }
 
@@ -412,11 +402,10 @@ Deno.serve(async (req) => {
             .from("pluggy_transactions")
             .upsert(chunk, { onConflict: "pluggy_transaction_id" });
           if (txErr) {
-            console.error("upsert pluggy_transactions failed", txErr);
-            return new Response(
-              JSON.stringify({ error: "db_tx_upsert_failed", details: txErr.message }),
-              { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-            );
+            return errorResponse("internal_error", {
+              logContext: "db upsert transactions failed",
+              logDetails: txErr.message,
+            });
           }
         }
         totalTx += rows.length;
@@ -475,11 +464,9 @@ Deno.serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err) {
-    const message = err instanceof Error ? err.message : "unknown_error";
-    console.error("pluggy-sync-data exception", message);
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    return errorResponse("internal_error", {
+      logContext: "pluggy-sync-data exception",
+      logDetails: err instanceof Error ? err.message : err,
     });
   }
 });
