@@ -272,11 +272,10 @@ Deno.serve(async (req) => {
     });
     const itemData = await itemRes.json();
     if (!itemRes.ok) {
-      console.error("pluggy-sync-data item fetch error", itemRes.status, itemData);
-      return new Response(
-        JSON.stringify({ error: "pluggy_item_fetch_failed", details: itemData }),
-        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      return errorResponse("upstream_error", {
+        logContext: "pluggy /items fetch failed",
+        logDetails: { status: itemRes.status, body: itemData },
+      });
     }
 
     // 2. Busca accounts
@@ -285,11 +284,10 @@ Deno.serve(async (req) => {
     });
     const accJson = await accRes.json();
     if (!accRes.ok) {
-      console.error("pluggy-sync-data accounts error", accRes.status, accJson);
-      return new Response(
-        JSON.stringify({ error: "pluggy_accounts_fetch_failed", details: accJson }),
-        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      return errorResponse("upstream_error", {
+        logContext: "pluggy /accounts fetch failed",
+        logDetails: { status: accRes.status, body: accJson },
+      });
     }
     const accounts: PluggyAccount[] = accJson.results ?? [];
 
@@ -337,11 +335,10 @@ Deno.serve(async (req) => {
         .from("pluggy_accounts")
         .upsert(accountRows, { onConflict: "pluggy_account_id" });
       if (accUpsertErr) {
-        console.error("upsert pluggy_accounts failed", accUpsertErr);
-        return new Response(
-          JSON.stringify({ error: "db_accounts_upsert_failed", details: accUpsertErr.message }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
+        return errorResponse("internal_error", {
+          logContext: "db upsert accounts failed",
+          logDetails: accUpsertErr.message,
+        });
       }
     }
 
@@ -405,11 +402,10 @@ Deno.serve(async (req) => {
             .from("pluggy_transactions")
             .upsert(chunk, { onConflict: "pluggy_transaction_id" });
           if (txErr) {
-            console.error("upsert pluggy_transactions failed", txErr);
-            return new Response(
-              JSON.stringify({ error: "db_tx_upsert_failed", details: txErr.message }),
-              { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-            );
+            return errorResponse("internal_error", {
+              logContext: "db upsert transactions failed",
+              logDetails: txErr.message,
+            });
           }
         }
         totalTx += rows.length;
@@ -468,11 +464,9 @@ Deno.serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err) {
-    const message = err instanceof Error ? err.message : "unknown_error";
-    console.error("pluggy-sync-data exception", message);
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    return errorResponse("internal_error", {
+      logContext: "pluggy-sync-data exception",
+      logDetails: err instanceof Error ? err.message : err,
     });
   }
 });
