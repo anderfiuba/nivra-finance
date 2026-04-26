@@ -139,16 +139,20 @@ const Disponivel = () => {
     [allCatalogParents, defaultLabels],
   );
 
-  // Aplica filtro "apenas com gastos no ciclo" sobre as listas exibidas.
-  const hasSpending = (label: string) => (spentByParent.get(label) ?? 0) > 0;
-  const visibleDefaultLabels = useMemo(
-    () => (onlyWithSpending ? defaultLabels.filter(hasSpending) : defaultLabels),
-    [defaultLabels, onlyWithSpending, spentByParent],
-  );
-  const visibleExtraLabels = useMemo(
-    () => (onlyWithSpending ? extraLabels.filter(hasSpending) : extraLabels),
-    [extraLabels, onlyWithSpending, spentByParent],
-  );
+  // Quando "apenas com gastos" está ativo, ignoramos a separação default/extra
+  // e listamos TODAS as categorias-pai do catálogo que tiveram gasto neste ciclo
+  // (incluindo as que apareceriam só sob o toggle "outras categorias").
+  const labelsWithSpending = useMemo(() => {
+    const set = new Set<string>();
+    for (const l of allCatalogParents) {
+      if ((spentByParent.get(l) ?? 0) > 0) set.add(l);
+    }
+    // Garante categorias com gasto que por algum motivo não estejam no catálogo.
+    for (const [l, v] of spentByParent) {
+      if (v > 0) set.add(l);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [allCatalogParents, spentByParent]);
 
   return (
     <div
@@ -171,39 +175,28 @@ const Disponivel = () => {
       {/* Limite total — sempre visível (define ou edita). */}
       <TotalBudgetCard spent={cycleAgg.total} />
 
-      {/* Categorias padrão — sempre visíveis em ordem alfabética. */}
-      <section className="space-y-2">
+      {/* Sessão de categorias: cabeçalho + toggles ACIMA da lista. */}
+      <section className="space-y-3">
         <h3 className="text-xs uppercase tracking-wider text-muted-foreground px-1">
           Categorias
         </h3>
-        <div className="space-y-2">
-          {visibleDefaultLabels.length > 0 ? (
-            visibleDefaultLabels.map((label) => renderCategoryRow(label))
-          ) : (
-            <p className="text-xs text-muted-foreground text-center py-4">
-              Nenhuma categoria com gasto neste ciclo.
-            </p>
-          )}
-        </div>
-      </section>
 
-      {/* Toggles de visualização (empilhados): primeiro filtrar por gastos, depois revelar extras. */}
-      <section className="space-y-2">
-        <div className="flex items-center justify-between gap-3 px-1">
-          <Label
-            htmlFor="only-with-spending"
-            className="text-xs text-muted-foreground cursor-pointer select-none"
-          >
-            Apenas com gastos no ciclo
-          </Label>
-          <Switch
-            id="only-with-spending"
-            checked={onlyWithSpending}
-            onCheckedChange={setOnlyWithSpending}
-          />
-        </div>
-        {extraLabels.length > 0 && (
-          <>
+        {/* Toggles de visualização — sempre acima da lista. */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-3 px-1">
+            <Label
+              htmlFor="only-with-spending"
+              className="text-xs text-muted-foreground cursor-pointer select-none"
+            >
+              Apenas com gastos no ciclo
+            </Label>
+            <Switch
+              id="only-with-spending"
+              checked={onlyWithSpending}
+              onCheckedChange={setOnlyWithSpending}
+            />
+          </div>
+          {!onlyWithSpending && extraLabels.length > 0 && (
             <div className="flex items-center justify-between gap-3 px-1">
               <Label
                 htmlFor="show-other-cats"
@@ -217,13 +210,26 @@ const Disponivel = () => {
                 onCheckedChange={setShowOthers}
               />
             </div>
-            {showOthers && visibleExtraLabels.length > 0 && (
-              <div className="space-y-2 pt-1">
-                {visibleExtraLabels.map((label) => renderCategoryRow(label))}
-              </div>
-            )}
-          </>
-        )}
+          )}
+        </div>
+
+        {/* Lista de categorias. */}
+        <div className="space-y-2">
+          {onlyWithSpending ? (
+            labelsWithSpending.length > 0 ? (
+              labelsWithSpending.map((label) => renderCategoryRow(label))
+            ) : (
+              <p className="text-xs text-muted-foreground text-center py-4">
+                Nenhuma categoria com gasto neste ciclo.
+              </p>
+            )
+          ) : (
+            <>
+              {defaultLabels.map((label) => renderCategoryRow(label))}
+              {showOthers && extraLabels.map((label) => renderCategoryRow(label))}
+            </>
+          )}
+        </div>
       </section>
 
       {/* Atalhos discretos */}

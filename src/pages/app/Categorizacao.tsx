@@ -127,16 +127,20 @@ const Categorizacao = () => {
     [allCatalogParents, primaryLabels],
   );
 
-  // Filtro "apenas com gastos no ciclo".
-  const hasSpending = (label: string) => (aggByParent.get(label)?.spent ?? 0) > 0;
-  const visiblePrimaryLabels = useMemo(
-    () => (onlyWithSpending ? primaryLabels.filter(hasSpending) : primaryLabels),
-    [primaryLabels, onlyWithSpending, aggByParent],
-  );
-  const visibleExtraLabels = useMemo(
-    () => (onlyWithSpending ? extraLabels.filter(hasSpending) : extraLabels),
-    [extraLabels, onlyWithSpending, aggByParent],
-  );
+  // Quando "apenas com gastos" está ativo, listamos TODAS as categorias-pai
+  // (catálogo completo + qualquer agregação do ciclo) que tiveram gasto > 0,
+  // ignorando a separação default/extra.
+  const labelsWithSpending = useMemo(() => {
+    const set = new Set<string>();
+    for (const it of monthly.items) {
+      if (it.spent > 0) set.add(it.parentLabel);
+    }
+    for (const l of allCatalogParents) {
+      const sp = aggByParent.get(l)?.spent ?? 0;
+      if (sp > 0) set.add(l);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [monthly.items, allCatalogParents, aggByParent]);
 
   // ---------- dialog handlers ----------
   const openNewBudget = (parentLabel: string) => {
@@ -402,20 +406,8 @@ const Categorizacao = () => {
           </div>
         </div>
 
-        <Card className="bg-gradient-card border-border overflow-hidden">
-          <div className="flex flex-col gap-2 md:gap-0 md:divide-y md:divide-border p-2 md:p-0">
-            {visiblePrimaryLabels.length > 0 ? (
-              visiblePrimaryLabels.map((label) => renderRow(label))
-            ) : (
-              <p className="text-xs text-muted-foreground text-center py-6">
-                Nenhuma categoria com gasto neste ciclo.
-              </p>
-            )}
-          </div>
-        </Card>
-
-        {/* Toggles de visualização (empilhados). */}
-        <div className="space-y-3">
+        {/* Toggles de visualização — ACIMA da lista de categorias. */}
+        <div className="space-y-2">
           <div className="flex items-center justify-between gap-3 px-1">
             <Label
               htmlFor="cat-only-with-spending"
@@ -429,33 +421,42 @@ const Categorizacao = () => {
               onCheckedChange={setOnlyWithSpending}
             />
           </div>
-
-          {extraLabels.length > 0 && (
-            <>
-              <div className="flex items-center justify-between gap-3 px-1">
-                <Label
-                  htmlFor="cat-show-others"
-                  className="text-xs text-muted-foreground cursor-pointer select-none"
-                >
-                  Mostrar outras categorias
-                </Label>
-                <Switch
-                  id="cat-show-others"
-                  checked={showOthers}
-                  onCheckedChange={setShowOthers}
-                />
-              </div>
-
-              {showOthers && visibleExtraLabels.length > 0 && (
-                <Card className="bg-gradient-card border-border overflow-hidden">
-                  <div className="flex flex-col gap-2 md:gap-0 md:divide-y md:divide-border p-2 md:p-0">
-                    {visibleExtraLabels.map((label) => renderRow(label))}
-                  </div>
-                </Card>
-              )}
-            </>
+          {!onlyWithSpending && extraLabels.length > 0 && (
+            <div className="flex items-center justify-between gap-3 px-1">
+              <Label
+                htmlFor="cat-show-others"
+                className="text-xs text-muted-foreground cursor-pointer select-none"
+              >
+                Mostrar outras categorias
+              </Label>
+              <Switch
+                id="cat-show-others"
+                checked={showOthers}
+                onCheckedChange={setShowOthers}
+              />
+            </div>
           )}
         </div>
+
+        {/* Lista de categorias. */}
+        <Card className="bg-gradient-card border-border overflow-hidden">
+          <div className="flex flex-col gap-2 md:gap-0 md:divide-y md:divide-border p-2 md:p-0">
+            {onlyWithSpending ? (
+              labelsWithSpending.length > 0 ? (
+                labelsWithSpending.map((label) => renderRow(label))
+              ) : (
+                <p className="text-xs text-muted-foreground text-center py-6">
+                  Nenhuma categoria com gasto neste ciclo.
+                </p>
+              )
+            ) : (
+              <>
+                {primaryLabels.map((label) => renderRow(label))}
+                {showOthers && extraLabels.map((label) => renderRow(label))}
+              </>
+            )}
+          </div>
+        </Card>
 
         {monthBucket && monthly.items.length === 0 && (
           <p className="text-xs text-muted-foreground text-center">
