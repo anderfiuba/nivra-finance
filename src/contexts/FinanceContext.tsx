@@ -85,6 +85,10 @@ export interface CategoryBudget {
   categoryLabel: string;
   monthlyLimit: number;
   alertThreshold: number;
+  /** 'parent' = orçamento de categoria principal; 'child' = subcategoria. */
+  scope: "parent" | "child";
+  /** Nome da categoria pai quando scope='child'. */
+  parentCategoryLabel: string | null;
 }
 
 export interface CardCycleSetting {
@@ -114,6 +118,17 @@ export interface BudgetProgress {
   ratio: number; // spent / limit
   status: BudgetStatus;
   budgetId: string;
+  scope: "parent" | "child";
+  parentCategoryLabel: string | null;
+}
+
+/** Agregação mensal hierárquica de despesas (pai → filhas). */
+export interface CategoryMonthlyAgg {
+  parentLabel: string;
+  parentId: string | null;
+  spent: number;
+  pctOfTotal: number;
+  children: { label: string; spent: number; pctOfParent: number }[];
 }
 
 interface FinanceContextValue {
@@ -152,8 +167,19 @@ interface FinanceContextValue {
   categoryBudgets: CategoryBudget[];
   budgetProgress: BudgetProgress[];
   budgetAlerts: number;
-  upsertBudget: (label: string, monthlyLimit: number, alertThreshold: number) => Promise<void>;
+  upsertBudget: (
+    label: string,
+    monthlyLimit: number,
+    alertThreshold: number,
+    scope?: "parent" | "child",
+    parentCategoryLabel?: string | null,
+  ) => Promise<void>;
   deleteBudget: (id: string) => Promise<void>;
+  /** Agrega gastos de um mês civil (YYYY-MM) por categoria pai → filhas. */
+  monthlyCategoryAggregates: (monthKey: string) => {
+    total: number;
+    items: CategoryMonthlyAgg[];
+  };
   // Configuração de ciclos por cartão (manual)
   cardCycleSettings: Record<string, CardCycleSetting>;
   upsertCardCycle: (pluggyAccountId: string, closingDay: number, dueDay: number) => Promise<void>;
