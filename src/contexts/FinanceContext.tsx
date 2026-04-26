@@ -118,6 +118,10 @@ export interface PluggyItemSummary {
   lastSyncedAt: string | null;
   /** Número de contas vinculadas a este item. */
   accountCount: number;
+  /** "PARTIAL_SUCCESS", "SUCCESS", etc. — vem direto da Pluggy. */
+  executionStatus: string | null;
+  /** Aviso curto e legível sobre o que faltou na última sincronização. */
+  lastSyncWarning: string | null;
 }
 
 export type BudgetStatus = "ok" | "alert" | "over";
