@@ -156,7 +156,7 @@ const Faturas = () => {
       // vencimento do ciclo anterior. Tolerância: mesmo mês.
       const matchingBill = findBillForDue(bills, account.pluggyAccountId, previous.dueDate);
 
-      if (matchingBill && !matchingBill.paid) {
+      if (matchingBill && !matchingBill.effectivePaid) {
         const bTxs = txsInWindow(transactions, account.pluggyAccountId, previous.start, previous.closingDate);
         const installs = bTxs.filter(isInstallmentTx);
         const oneOffs = bTxs.filter((t) => !isInstallmentTx(t));
@@ -251,7 +251,7 @@ const Faturas = () => {
     const now = Date.now();
     return bills
       .filter((b) => {
-        if (b.paid) return true;
+        if (b.effectivePaid) return true;
         if (!b.dueDate) return false;
         const due = new Date(b.dueDate + "T00:00:00").getTime();
         return now - due > 7 * 24 * 60 * 60 * 1000;
