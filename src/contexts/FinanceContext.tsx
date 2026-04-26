@@ -742,6 +742,105 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       .sort((a, b) => b.value - a.value);
   }, [cycleTransactions]);
 
+  // === Selectors por MÊS CIVIL (independente do cycleDay configurado para cartões) ===
+  // O Dashboard usa essas séries para mostrar o resumo do mês corrente, que é o
+  // que o usuário espera (o cycleDay continua governando a página de Faturas).
+  const monthRanges = useMemo(() => {
+    const now = REFERENCE_DATE;
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    const startCurr = new Date(y, m, 1, 0, 0, 0, 0).getTime();
+    const endCurr = new Date(y, m + 1, 0, 23, 59, 59, 999).getTime();
+    const startPrev = new Date(y, m - 1, 1, 0, 0, 0, 0).getTime();
+    const endPrev = new Date(y, m, 0, 23, 59, 59, 999).getTime();
+    return { startCurr, endCurr, startPrev, endPrev };
+  }, []);
+
+  const currentMonthLabel = useMemo(
+    () => REFERENCE_DATE.toLocaleDateString("pt-BR", { month: "long", year: "numeric" }),
+    [],
+  );
+
+  const monthTransactions = useMemo(() => {
+    return transactions.filter((t) => {
+      const ts = new Date(t.date).getTime();
+      return ts >= monthRanges.startCurr && ts <= monthRanges.endCurr;
+    });
+  }, [transactions, monthRanges]);
+
+  const previousMonthTransactions = useMemo(() => {
+    return transactions.filter((t) => {
+      const ts = new Date(t.date).getTime();
+      return ts >= monthRanges.startPrev && ts <= monthRanges.endPrev;
+    });
+  }, [transactions, monthRanges]);
+
+  const monthTotals = useMemo(() => computeTotals(monthTransactions), [monthTransactions]);
+  const previousMonthTotals = useMemo(
+    () => computeTotals(previousMonthTransactions),
+    [previousMonthTransactions],
+  );
+
+  const expensesByCategoryMonth = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const t of monthTransactions) {
+      if (t.type !== "saida") continue;
+      const cat = t.category || "Outros";
+      if (!isExpenseCategory(cat)) continue;
+      map.set(cat, (map.get(cat) ?? 0) + Math.abs(t.value));
+    }
+    return Array.from(map.entries())
+      .map(([name, value]) => ({
+        name,
+        value,
+        color: CATEGORY_COLORS[name] ?? "hsl(220 10% 50%)",
+      }))
+      .sort((a, b) => b.value - a.value);
+  }, [monthTransactions]);
+
+  // === Histórico do Patrimônio — últimos 90 dias derivados do extrato ===
+  // Como não armazenamos snapshots, derivamos: patrimônio(t) = patrimônio_atual
+  // − (entradas BANK depois de t) + (saídas BANK depois de t). Cartões não
+  // afetam patrimônio (afetam fatura). Resultado: 1 ponto por dia, crescente.
+  const patrimonyHistory = useMemo(() => {
+    const DAYS = 90;
+    const bankAccountIds = new Set(
+      accounts
+        .filter((a) => (a.type ?? "").toUpperCase() !== "CREDIT")
+        .map((a) => a.pluggyAccountId),
+    );
+    if (bankAccountIds.size === 0) return [];
+
+    const current = accounts.reduce((sum, a) => {
+      if ((a.type ?? "").toUpperCase() === "CREDIT") return sum;
+      return sum + (a.balance ?? 0);
+    }, 0);
+
+    const byDay = new Map<string, number>();
+    for (const t of transactions) {
+      if (!bankAccountIds.has(t.pluggyAccountId ?? "")) continue;
+      const d = new Date(t.date);
+      if (Number.isNaN(d.getTime())) continue;
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      const delta = t.type === "entrada" ? t.value : -Math.abs(t.value);
+      byDay.set(key, (byDay.get(key) ?? 0) + delta);
+    }
+
+    const today = new Date(REFERENCE_DATE);
+    today.setHours(0, 0, 0, 0);
+    const points: { date: string; value: number }[] = [];
+    let value = current;
+    for (let i = 0; i < DAYS; i++) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      points.push({ date: key, value: Math.round(value * 100) / 100 });
+      const delta = byDay.get(key) ?? 0;
+      value -= delta;
+    }
+    return points.reverse();
+  }, [accounts, transactions]);
+
   /**
    * Agrega gastos do mês civil (chave YYYY-MM) por categoria pai → filhas.
    * Resultado contém apenas categorias com gasto > 0 (sob demanda).
