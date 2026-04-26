@@ -135,15 +135,15 @@ const Disponivel = () => {
       {/* Header minúsculo */}
       <div className="flex items-baseline justify-between">
         <p className="text-xs uppercase tracking-wider text-muted-foreground">
-          {currentMonthLabel}
+          Ciclo {currentCycleLabel}
         </p>
         <p className="text-xs text-muted-foreground tabular-nums">
-          dia {dayOfMonth} de {totalDays}
+          dia {elapsedDays} de {totalCycleDays}
         </p>
       </div>
 
       {/* Limite total — sempre visível (define ou edita). */}
-      <TotalBudgetCard spent={totals.spent} />
+      <TotalBudgetCard spent={cycleAgg.total} />
 
       {/* Hero: número grande */}
       {isEmpty ? (
