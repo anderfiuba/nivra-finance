@@ -9,6 +9,7 @@ import { useFinance } from "@/contexts/FinanceContext";
 import { CategoryBudgetCard } from "@/components/disponivel/CategoryBudgetCard";
 import { CategorySheet } from "@/components/disponivel/CategorySheet";
 import { TotalBudgetCard } from "@/components/disponivel/TotalBudgetCard";
+import { CycleDaySettingsButton } from "@/components/CycleDaySettingsButton";
 
 /**
  * Pocket View — "Quanto ainda posso gastar este mês?".
