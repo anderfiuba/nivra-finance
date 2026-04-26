@@ -250,7 +250,7 @@ const Categorizacao = () => {
 
   // ============== render ==============
   return (
-    <div className="p-6 md:p-8 space-y-6 max-w-[1600px] mx-auto">
+    <div className="p-6 md:p-8 space-y-6 max-w-[1600px] mx-auto border-0">
       <div>
         <h1 className="text-2xl md:text-3xl font-bold text-foreground tracking-tight">Categorias</h1>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -326,10 +326,11 @@ const Categorizacao = () => {
                   return (
                     <Collapsible
                       key={item.parentLabel}
+                      className="border border-none border-secondary"
                       open={isOpen}
                       onOpenChange={(o) => setExpanded((p) => ({ ...p, [item.parentLabel]: o }))}
                     >
-                      <div className="p-3.5 md:p-5 space-y-3 rounded-lg border bg-card/40 md:rounded-none md:border-0 md:bg-transparent py-[25px] border-primary mx-0 px-[25px]">
+                      <div className="p-3.5 md:p-5 space-y-3 rounded-lg bg-card/40 md:rounded-none md:border-0 md:bg-transparent py-[25px] mx-[5px] px-[25px] border-primary border">
                         <div className="flex items-start gap-2 md:gap-3">
                           <CollapsibleTrigger asChild>
                             <button
