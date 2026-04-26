@@ -327,7 +327,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         supabase
           .from("pluggy_items")
           .select(
-            "id,pluggy_item_id,connector_name,connector_image_url,connector_primary_color,status,last_synced_at,updated_at",
+            "id,pluggy_item_id,connector_name,connector_image_url,connector_primary_color,status,execution_status,last_sync_warning,last_synced_at,updated_at",
           )
           .order("connector_name", { ascending: true }),
         supabase
@@ -418,6 +418,8 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           status: it.status,
           lastSyncedAt: it.last_synced_at ?? it.updated_at ?? null,
           accountCount: accountsByItem.get(it.pluggy_item_id) ?? 0,
+          executionStatus: it.execution_status ?? null,
+          lastSyncWarning: it.last_sync_warning ?? null,
         })),
       );
 
