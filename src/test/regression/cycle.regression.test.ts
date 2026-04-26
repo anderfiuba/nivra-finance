@@ -2,13 +2,20 @@ import { describe, it, expect } from "vitest";
 import { getCycleRange, getPreviousCycleRange, isWithinCycle, lastNCycles } from "@/lib/cycle";
 
 describe("[REG] Mês financeiro do usuário", () => {
-  it("ciclo 8: ref 15/abr → 09/abr a 08/mai", () => {
+  it("ciclo 8: ref 15/abr (refD>day) → 09/abr a 08/mai", () => {
     const r = getCycleRange(8, new Date(2026, 3, 15));
     expect(r.start.getDate()).toBe(9);
-    expect(r.start.getMonth()).toBe(2); // mar
-    // Pelo bug histórico: refD>day então end=mês seguinte
+    expect(r.start.getMonth()).toBe(3); // abr
     expect(r.end.getDate()).toBe(8);
     expect(r.end.getMonth()).toBe(4); // mai
+  });
+
+  it("ciclo 8: ref 05/abr (refD<=day) → 09/mar a 08/abr", () => {
+    const r = getCycleRange(8, new Date(2026, 3, 5));
+    expect(r.start.getDate()).toBe(9);
+    expect(r.start.getMonth()).toBe(2); // mar
+    expect(r.end.getDate()).toBe(8);
+    expect(r.end.getMonth()).toBe(3); // abr
   });
 
   it("ciclo 1 = mês civil", () => {

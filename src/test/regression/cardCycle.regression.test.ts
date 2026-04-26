@@ -29,13 +29,13 @@ describe("[REG] Cartão de crédito — ciclos", () => {
     expect(resolveCycleDays({ balanceCloseDate: null, balanceDueDate: null }, null)).toBeNull();
   });
 
-  it("janela atual: ref 10/abr, fech 8 → start 09/mar, close 08/mai", () => {
+  it("janela atual: ref 10/abr (refD>closing), fech 8 → start 09/abr, close 08/mai", () => {
     const w = computeCurrentCycleWindow({ closingDay: 8, dueDay: 15 }, new Date(2026, 3, 10));
     expect(w.start.getDate()).toBe(9);
-    expect(w.start.getMonth()).toBe(2);
+    expect(w.start.getMonth()).toBe(3); // abr
     expect(w.closingDate.getDate()).toBe(8);
-    expect(w.closingDate.getMonth()).toBe(4);
-    // due < closing? 15 > 8, então mesmo mês de fechamento
+    expect(w.closingDate.getMonth()).toBe(4); // mai
+    // due (15) > closing (8) → mesmo mês de fechamento
     expect(w.dueDate.getDate()).toBe(15);
     expect(w.dueDate.getMonth()).toBe(4);
   });
