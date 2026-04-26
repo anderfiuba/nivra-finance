@@ -53,6 +53,7 @@ const Disponivel = () => {
     budgetId: string | null;
   } | null>(null);
   const [showOthers, setShowOthers] = useState(false);
+  const [onlyWithSpending, setOnlyWithSpending] = useState(false);
 
   const openSheetForBudget = (b: (typeof budgetProgress)[number]) => {
     setSheetSelection({
@@ -138,6 +139,17 @@ const Disponivel = () => {
     [allCatalogParents, defaultLabels],
   );
 
+  // Aplica filtro "apenas com gastos no ciclo" sobre as listas exibidas.
+  const hasSpending = (label: string) => (spentByParent.get(label) ?? 0) > 0;
+  const visibleDefaultLabels = useMemo(
+    () => (onlyWithSpending ? defaultLabels.filter(hasSpending) : defaultLabels),
+    [defaultLabels, onlyWithSpending, spentByParent],
+  );
+  const visibleExtraLabels = useMemo(
+    () => (onlyWithSpending ? extraLabels.filter(hasSpending) : extraLabels),
+    [extraLabels, onlyWithSpending, spentByParent],
+  );
+
   return (
     <div
       className="px-4 pt-4 pb-8 md:p-8 max-w-2xl mx-auto space-y-5"
@@ -164,30 +176,55 @@ const Disponivel = () => {
         <h3 className="text-xs uppercase tracking-wider text-muted-foreground px-1">
           Categorias
         </h3>
-        <div className="space-y-2">{defaultLabels.map((label) => renderCategoryRow(label))}</div>
+        <div className="space-y-2">
+          {visibleDefaultLabels.length > 0 ? (
+            visibleDefaultLabels.map((label) => renderCategoryRow(label))
+          ) : (
+            <p className="text-xs text-muted-foreground text-center py-4">
+              Nenhuma categoria com gasto neste ciclo.
+            </p>
+          )}
+        </div>
       </section>
 
-      {/* Toggle minimalista: revelar demais categorias do catálogo. */}
-      {extraLabels.length > 0 && (
-        <section className="space-y-2">
-          <div className="flex items-center justify-between gap-3 px-1">
-            <Label
-              htmlFor="show-other-cats"
-              className="text-xs text-muted-foreground cursor-pointer select-none"
-            >
-              Mostrar outras categorias
-            </Label>
-            <Switch
-              id="show-other-cats"
-              checked={showOthers}
-              onCheckedChange={setShowOthers}
-            />
-          </div>
-          {showOthers && (
-            <div className="space-y-2">{extraLabels.map((label) => renderCategoryRow(label))}</div>
-          )}
-        </section>
-      )}
+      {/* Toggles de visualização (empilhados): primeiro filtrar por gastos, depois revelar extras. */}
+      <section className="space-y-2">
+        <div className="flex items-center justify-between gap-3 px-1">
+          <Label
+            htmlFor="only-with-spending"
+            className="text-xs text-muted-foreground cursor-pointer select-none"
+          >
+            Apenas com gastos no ciclo
+          </Label>
+          <Switch
+            id="only-with-spending"
+            checked={onlyWithSpending}
+            onCheckedChange={setOnlyWithSpending}
+          />
+        </div>
+        {extraLabels.length > 0 && (
+          <>
+            <div className="flex items-center justify-between gap-3 px-1">
+              <Label
+                htmlFor="show-other-cats"
+                className="text-xs text-muted-foreground cursor-pointer select-none"
+              >
+                Mostrar outras categorias
+              </Label>
+              <Switch
+                id="show-other-cats"
+                checked={showOthers}
+                onCheckedChange={setShowOthers}
+              />
+            </div>
+            {showOthers && visibleExtraLabels.length > 0 && (
+              <div className="space-y-2 pt-1">
+                {visibleExtraLabels.map((label) => renderCategoryRow(label))}
+              </div>
+            )}
+          </>
+        )}
+      </section>
 
       {/* Atalhos discretos */}
       <div className="flex items-center justify-center pt-2">
