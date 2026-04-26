@@ -22,13 +22,17 @@ import {
   PencilLine,
   Plus,
   Trash2,
-  Wallet,
+  PieChart as PieIcon,
 } from "lucide-react";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { useFinance } from "@/contexts/FinanceContext";
 import { formatBRL } from "@/lib/format";
 import { MonthSelector } from "@/components/extrato/MonthSelector";
 import { CycleDaySettingsButton } from "@/components/CycleDaySettingsButton";
 import { DEFAULT_PARENT_CATEGORIES } from "@/lib/defaultCategories";
+import { TotalBudgetCard } from "@/components/disponivel/TotalBudgetCard";
+import { CategoryIcon } from "@/lib/categoryIcons";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -55,7 +59,9 @@ const Categorizacao = () => {
     deleteBudget,
     totalBudget,
     parentBudgetsSum,
+    currentCycleLabel,
   } = useFinance();
+  const isMobile = useIsMobile();
 
   // ---------- estado ----------
   const cycles = useMemo(() => lastCycles(12), [lastCycles]);
@@ -69,6 +75,7 @@ const Categorizacao = () => {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [showOthers, setShowOthers] = useState(false);
   const [onlyWithSpending, setOnlyWithSpending] = useState(false);
+  const [onlyWithLimit, setOnlyWithLimit] = useState(false);
 
   // dialog (somente categoria-pai)
   const [dlgOpen, setDlgOpen] = useState(false);
@@ -141,6 +148,26 @@ const Categorizacao = () => {
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
   }, [monthly.items, allCatalogParents, aggByParent]);
+
+  // Helper aplicado a qualquer lista: limita às que tem orçamento se o toggle estiver ligado.
+  const applyLimitFilter = (labels: string[]) =>
+    onlyWithLimit ? labels.filter((l) => budgetByParent.has(l)) : labels;
+
+  // Dados pro gráfico circular: TODAS as categorias-pai com gasto > 0 no ciclo,
+  // ordenadas por valor desc. Cores via HSL gerada a partir de hash do label.
+  const donutData = useMemo(() => {
+    const items = monthly.items
+      .filter((it) => it.spent > 0)
+      .sort((a, b) => b.spent - a.spent);
+    return items.map((it, idx) => ({
+      name: it.parentLabel,
+      value: it.spent,
+      color: pickHue(idx, items.length),
+    }));
+  }, [monthly.items]);
+
+  const donutInner = isMobile ? 50 : 70;
+  const donutOuter = isMobile ? 80 : 105;
 
   // ---------- dialog handlers ----------
   const openNewBudget = (parentLabel: string) => {
