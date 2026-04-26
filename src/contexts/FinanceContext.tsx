@@ -277,7 +277,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           .order("due_date", { ascending: false }),
         supabase
           .from("category_budgets")
-          .select("id,category_label,monthly_limit,alert_threshold")
+          .select("id,category_label,monthly_limit,alert_threshold,scope,parent_category_label")
           .order("category_label", { ascending: true }),
         supabase
           .from("pluggy_items")
