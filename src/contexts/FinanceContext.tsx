@@ -876,47 +876,34 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   }, [monthTransactions]);
 
   // === Histórico do Patrimônio — últimos 90 dias derivados do extrato ===
-  // Como não armazenamos snapshots, derivamos: patrimônio(t) = patrimônio_atual
-  // − (entradas BANK depois de t) + (saídas BANK depois de t). Cartões não
-  // afetam patrimônio (afetam fatura). Resultado: 1 ponto por dia, crescente.
-  const patrimonyHistory = useMemo(() => {
-    const DAYS = 90;
-    const bankAccountIds = new Set(
-      accounts
-        .filter((a) => (a.type ?? "").toUpperCase() !== "CREDIT")
-        .map((a) => a.pluggyAccountId),
-    );
-    if (bankAccountIds.size === 0) return [];
-
-    const current = accounts.reduce((sum, a) => {
-      if ((a.type ?? "").toUpperCase() === "CREDIT") return sum;
-      return sum + (a.balance ?? 0);
-    }, 0);
-
-    const byDay = new Map<string, number>();
-    for (const t of transactions) {
-      if (!bankAccountIds.has(t.pluggyAccountId ?? "")) continue;
-      const d = new Date(t.date);
-      if (Number.isNaN(d.getTime())) continue;
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      const delta = t.type === "entrada" ? t.value : -Math.abs(t.value);
-      byDay.set(key, (byDay.get(key) ?? 0) + delta);
-    }
-
-    const today = new Date(REFERENCE_DATE);
-    today.setHours(0, 0, 0, 0);
-    const points: { date: string; value: number }[] = [];
-    let value = current;
-    for (let i = 0; i < DAYS; i++) {
-      const d = new Date(today);
-      d.setDate(today.getDate() - i);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      points.push({ date: key, value: Math.round(value * 100) / 100 });
-      const delta = byDay.get(key) ?? 0;
-      value -= delta;
-    }
-    return points.reverse();
-  }, [accounts, transactions]);
+  // Delegado para `buildPatrimonyHistory` (testável e universal). Esse helper
+  // aplica normalizações que evitam o bug de "patrimônio inicial negativo":
+  //   - exclui contas BANK com saldo zero suspeito (Mercado Pago etc.);
+  //   - clipa a janela à primeira transação confiável conhecida;
+  //   - faz floor a 0 quando a rebobinação produz negativo (sinal de extrato
+  //     mais longo que o saldo conhecido).
+  const patrimonyHistoryResult = useMemo(
+    () =>
+      buildPatrimonyHistory(
+        accounts.map((a) => ({
+          pluggyAccountId: a.pluggyAccountId,
+          type: a.type,
+          balance: a.balance,
+          automaticallyInvestedBalance: a.automaticallyInvestedBalance,
+        })),
+        transactions.map((t) => ({
+          pluggyAccountId: t.pluggyAccountId ?? null,
+          date: t.date,
+          type: t.type,
+          value: t.value,
+        })),
+        { days: 90, referenceDate: REFERENCE_DATE },
+      ),
+    [accounts, transactions],
+  );
+  const patrimonyHistory = patrimonyHistoryResult.points;
+  const patrimonyHistoryIncomplete = patrimonyHistoryResult.hasIncompleteHistory;
+  const patrimonyExcludedAccounts = patrimonyHistoryResult.excludedZeroBalanceAccounts;
 
   /**
    * Núcleo de agregação: dado um intervalo [startMs, endMs], devolve total e itens
