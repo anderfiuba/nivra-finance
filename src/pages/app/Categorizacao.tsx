@@ -280,6 +280,13 @@ const Categorizacao = () => {
                     !hasChildren && "opacity-0",
                   )}
                 />
+                <div className="h-9 w-9 rounded-lg bg-secondary/60 border border-border flex items-center justify-center shrink-0">
+                  <CategoryIcon
+                    label={label}
+                    size={18}
+                    className="text-foreground/80"
+                  />
+                </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-sm font-medium text-foreground truncate group-hover:underline">
@@ -383,6 +390,13 @@ const Categorizacao = () => {
                   return (
                     <div key={c.label} className="py-1.5">
                       <div className="flex items-start gap-3">
+                        <div className="h-7 w-7 rounded-md bg-secondary/40 border border-border/60 flex items-center justify-center shrink-0 mt-0.5">
+                          <CategoryIcon
+                            label={c.label}
+                            size={14}
+                            className="text-muted-foreground"
+                          />
+                        </div>
                         <div className="min-w-0 flex-1">
                           <p className="text-xs font-medium text-foreground truncate">{c.label}</p>
                           <p className="text-[11px] text-muted-foreground mt-0.5 tabular-nums">
