@@ -249,6 +249,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   const [categories, setCategories] = useState<PluggyCategoryNode[]>([]);
   const [bills, setBills] = useState<FinanceBill[]>([]);
   const [categoryBudgets, setCategoryBudgets] = useState<CategoryBudget[]>([]);
+  const [totalBudget, setTotalBudget] = useState<TotalBudget | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [cardCycleSettings, setCardCycleSettings] = useState<Record<string, CardCycleSetting>>({});
   const [cycleDay, setCycleDayState] = useState<number>(() => loadCycleDay());
