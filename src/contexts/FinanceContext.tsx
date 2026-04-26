@@ -502,6 +502,8 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           categoryLabel: b.category_label,
           monthlyLimit: Number(b.monthly_limit),
           alertThreshold: Number(b.alert_threshold),
+          scope: (b.scope === "child" ? "child" : "parent") as "parent" | "child",
+          parentCategoryLabel: b.parent_category_label ?? null,
         })),
       );
 
