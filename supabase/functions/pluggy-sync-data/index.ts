@@ -451,41 +451,61 @@ async function markPaidBillsByInference(
   userId: string,
   pluggyAccountId: string,
   bills: PluggyBill[],
-): Promise<void> {
-  // Pega transações CREDIT (entrada) com descrição de pagamento dessa conta.
+): Promise<number> {
+  // Pega transações CREDIT (entrada) com descrição de pagamento OU categoria
+  // Pluggy "Credit card payment" (category_id = 05100000) dessa conta.
   const { data: txs, error } = await adminClient
     .from("pluggy_transactions")
-    .select("amount, transaction_date, description, type")
+    .select("amount, transaction_date, description, type, category_pluggy, category_id")
     .eq("user_id", userId)
     .eq("pluggy_account_id", pluggyAccountId)
-    .or("type.eq.CREDIT,description.ilike.%pagamento%");
-  if (error || !txs) return;
+    .eq("type", "CREDIT");
+  if (error || !txs) return 0;
 
-  const PAYMENT_RE = /pagamento|payment\s*received|fatura\s*paga/i;
-  const candidates = (txs as Array<{ amount: number | string; transaction_date: string; description: string; type: string | null }>).filter(
-    (t) => (t.type ?? "").toUpperCase() === "CREDIT" || PAYMENT_RE.test(t.description ?? ""),
-  ).map((t) => ({
+  const PAYMENT_RE = /pagamento\s*recebido|payment\s*received|fatura\s*paga|pagamento\s*de\s*fatura/i;
+  const NON_PAYMENT_RE = /cr[eé]dito\s+de\s+parcelamento|estorno|cashback|reembolso|chargeback|ajuste/i;
+  const candidates = (txs as Array<{
+    amount: number | string;
+    transaction_date: string;
+    description: string;
+    type: string | null;
+    category_pluggy: string | null;
+    category_id: string | null;
+  }>).filter((t) => {
+    const desc = t.description ?? "";
+    if (NON_PAYMENT_RE.test(desc)) return false;
+    if (t.category_pluggy === "Credit card payment") return true;
+    if (t.category_id === "05100000") return true;
+    return PAYMENT_RE.test(desc);
+  }).map((t) => ({
     amount: Math.abs(Number(t.amount)),
     ts: new Date(t.transaction_date).getTime(),
     desc: t.description ?? "",
   }));
 
   const idsToMarkPaid: string[] = [];
+  const DAY = 24 * 60 * 60 * 1000;
   for (const b of bills) {
     if (!b.dueDate || b.totalAmount == null) continue;
     const total = Number(b.totalAmount);
     if (!(total > 0)) continue;
     const tol = Math.max(1, total * 0.02);
-    const due = new Date(b.dueDate.slice(0, 10) + "T00:00:00").getTime();
-    const lo = due - 30 * 86400000;
-    const hi = due + 15 * 86400000;
+    // Janela em UTC, do início do dia LO até o FIM do dia HI (23:59:59.999).
+    const due = Date.parse(b.dueDate.slice(0, 10) + "T00:00:00.000Z");
+    const lo = due - 35 * DAY;
+    const hi = due + 45 * DAY + (DAY - 1);
     const match = candidates.some((c) => c.ts >= lo && c.ts <= hi && Math.abs(c.amount - total) <= tol);
     if (match) idsToMarkPaid.push(b.id);
   }
-  if (idsToMarkPaid.length === 0) return;
-  await adminClient
+  if (idsToMarkPaid.length === 0) return 0;
+  const { error: updErr } = await adminClient
     .from("pluggy_bills")
     .update({ paid: true })
     .in("pluggy_bill_id", idsToMarkPaid)
     .eq("user_id", userId);
+  if (updErr) {
+    console.error("markPaidBillsByInference update failed", updErr);
+    return 0;
+  }
+  return idsToMarkPaid.length;
 }
