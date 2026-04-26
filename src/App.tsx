@@ -19,6 +19,8 @@ import Planos from "./pages/app/Planos.tsx";
 import Categorizacao from "./pages/app/Categorizacao.tsx";
 import Faturas from "./pages/app/Faturas.tsx";
 import Disponivel from "./pages/app/Disponivel.tsx";
+import Privacidade from "./pages/legal/Privacidade.tsx";
+import Termos from "./pages/legal/Termos.tsx";
 import { FinanceProvider } from "./contexts/FinanceContext";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
@@ -40,6 +42,8 @@ const App = () => (
             <Route path="/signup" element={<Signup />} />
             <Route path="/recuperar" element={<Recover />} />
             <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/privacidade" element={<Privacidade />} />
+            <Route path="/termos" element={<Termos />} />
             <Route
               path="/app"
               element={
