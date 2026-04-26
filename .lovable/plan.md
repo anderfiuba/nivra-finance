@@ -1,143 +1,178 @@
 
-## 1. Remover a sessão **Pendentes** da página Categorias
+## 1. Sincronização Open Finance — automática 2× ao dia, sem botão manual
 
-A página `Categorias` deixa de ser híbrida e passa a ter um único propósito: **visualizar gastos por categoria/subcategoria e definir limites mensais**.
+### 1.1. Agendamento no banco (pg_cron + pg_net)
 
-### Edições em `src/pages/app/Categorizacao.tsx`
-- Remover o uso de `Tabs / TabsList / TabsTrigger / TabsContent` — a página renderiza diretamente a visão "Por categoria".
-- Remover a aba **Pendentes** inteira (bloco `<TabsContent value="pendentes">…</TabsContent>`, ~linhas 537–612).
-- Remover imports e estados não utilizados:
-  - `Tabs, TabsContent, TabsList, TabsTrigger`
-  - `ArrowDownRight, ArrowUpRight, CheckCircle2, HelpCircle`
-  - `Transaction`, `formatDate`
-  - `pendingList`, `pendingByType`, `updateCategory` do `useFinance()`
-  - estado `draftCategory` e função `handleSaveCategory`
-  - `visible` e `semCategoriaCount`
-- Manter `parentCategoryLabels` (ainda usado no diálogo de orçamento) e o restante da lógica de orçamentos / agregados mensais intacta.
+Criar uma migração que:
+- Habilita as extensões `pg_cron` e `pg_net` (idempotente).
+- Cria uma função SQL `public.trigger_pluggy_sync_all()` que itera todos os `pluggy_items` ativos e dispara, para cada um, uma chamada HTTP assíncrona via `net.http_post` para a edge function **`pluggy-sync-data`** (passando `itemId` no body). A função usa `SECURITY DEFINER` e roda com a service role.
+- Agenda dois jobs `cron.schedule`:
+  - `pluggy-sync-morning` → `0 3 * * *` (03:00 UTC = 00:00 BRT)
+  - `pluggy-sync-evening` → `0 15 * * *` (15:00 UTC = 12:00 BRT)
+  - Cada job chama `select public.trigger_pluggy_sync_all();`
+- Antes de criar, faz `cron.unschedule` defensivo se já existirem (para suportar re-execução).
 
-### Sidebar (`src/components/AppSidebar.tsx`)
-- Remover o badge `badgeKey: "pending"` do item **Categorias** (linha 24), já que a página deixa de tratar pendências. O contexto `pendingList` continua existindo para uso futuro, mas o badge na navegação é removido para evitar levar o usuário a uma aba que não existe mais.
-- Remover o import de `useFinance` se não houver mais usos no arquivo (após a remoção do badge).
+> Como `pg_net` precisa do JWT/anon key para chamar a edge function autenticada, o job vai usar a **service role key** lida de `vault.decrypted_secrets` (já há `SUPABASE_SERVICE_ROLE_KEY` configurado). Como recomendado pela documentação interna, a SQL com URL/secret será aplicada via **insert tool** (não via migration), porque carrega dados específicos do projeto.
 
-### O que **não** vamos remover
-- `pendingType`, `pendingList`, `pendingByType` no `FinanceContext` — continuam disponíveis caso, no futuro, exista uma tela dedicada a pendências. Apenas a UI em Categorias é limpa.
+Plano de SQL (a ser dividido em migration + insert/seed):
+
+**Migration (estrutura):**
+```sql
+create extension if not exists pg_cron with schema extensions;
+create extension if not exists pg_net  with schema extensions;
+
+create or replace function public.trigger_pluggy_sync_all()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  r record;
+begin
+  for r in
+    select distinct pluggy_item_id
+    from public.pluggy_items
+    where pluggy_item_id is not null
+  loop
+    perform net.http_post(
+      url     := current_setting('app.settings.sync_url', true),
+      headers := jsonb_build_object(
+                   'Content-Type','application/json',
+                   'Authorization', 'Bearer ' || current_setting('app.settings.service_key', true)
+                 ),
+      body    := jsonb_build_object('itemId', r.pluggy_item_id, 'source', 'cron')
+    );
+  end loop;
+end;
+$$;
+```
+
+**Insert tool (configuração com dados sensíveis e agendamento):**
+```sql
+alter database postgres set "app.settings.sync_url" = 'https://pmnqukoifdqiiyctyoof.supabase.co/functions/v1/pluggy-sync-data';
+alter database postgres set "app.settings.service_key" = '<SERVICE_ROLE_KEY>';
+-- (Substituído em runtime; não comitado em migrations)
+
+select cron.unschedule('pluggy-sync-morning') where exists (select 1 from cron.job where jobname='pluggy-sync-morning');
+select cron.unschedule('pluggy-sync-evening') where exists (select 1 from cron.job where jobname='pluggy-sync-evening');
+
+select cron.schedule('pluggy-sync-morning', '0 3 * * *',  $$ select public.trigger_pluggy_sync_all(); $$);
+select cron.schedule('pluggy-sync-evening', '0 15 * * *', $$ select public.trigger_pluggy_sync_all(); $$);
+```
+
+> **Atenção sobre `ALTER DATABASE`:** as instruções globais proíbem migrations contendo `ALTER DATABASE postgres`. Por isso esses dois `ALTER DATABASE ... SET` ficam **fora da migration**, executados via insert tool no projeto atual (não viajam em remix), igual à prática recomendada para cron jobs.
+
+### 1.2. Edge function `pluggy-sync-data` aceita chamada cron
+
+A função hoje exige `verify_jwt = true` e usa `auth.uid()` via RLS para resolver o usuário do item. Para o cron funcionar precisamos:
+
+- Em `supabase/config.toml`, manter a função `pluggy-sync-data` chamável com **service role** (a service role key passa no `Authorization: Bearer` e é aceita como JWT válido pelo gateway). Não é preciso desativar `verify_jwt` — service role key é um JWT válido.
+- No código da função, ajustar o trecho que resolve o `user_id` do item: hoje deduz pelo `auth.uid()` + RLS; precisa **ler `user_id` direto da tabela `pluggy_items`** usando service-role client quando o caller é cron (sem `auth.uid()`). Detecta cron por `body.source === "cron"` ou pela ausência de `auth.uid()`.
+
+Alteração resumida em `supabase/functions/pluggy-sync-data/index.ts`:
+- Após autenticar, tentar `supabaseUserClient.auth.getUser()`. Se vazio → assumir cron, buscar `user_id` do item via service role.
+- Validar que o item existe e pertence a algum usuário antes de prosseguir. Sem isso, recusar.
+
+Sem mudanças em `pluggy-sync-item` (refresh remoto) — a `pluggy-sync-data` já chama o necessário internamente; o refresh extra do botão manual sai junto.
+
+### 1.3. Remover toda a UI/lógica de sincronização manual
+
+Em `src/pages/app/Conexoes.tsx`:
+- Remover `handleSync`, `syncingId`, `setSyncingId`.
+- Remover o `<Button>` "Sincronizar" e o `<Button>` topo "Atualizar" (recarregar lista). A própria realtime + revalidação ao montar já cuida — mas vamos manter um pequeno botão **"Atualizar lista"** somente para recarregar os metadados do banco (não chama Pluggy). Mais leve, sem `RefreshCw` confuso.
+- Remover `import { RefreshCw }` não usado e qualquer referência a `pluggy-sync-item` no client (não há outras hoje).
+- Adicionar um aviso fixo abaixo do header explicando a regra:
+
+  > _"Suas contas são sincronizadas automaticamente **2 vezes ao dia** (00:00 e 12:00, horário de Brasília). Novas transações aparecerão em todas as telas — extrato, dashboard, categorias e faturas — assim que chegarem."_
+
+Em `supabase/functions/`:
+- A função `pluggy-sync-item` é hoje chamada apenas pelo botão removido. Manter o arquivo? **Remover** (delete) para limpar a base, junto com a entrada em `supabase/config.toml`. (A sync-data já solicita o refresh implicitamente ao puxar dados; se for preciso forçar refresh remoto, o cron pode evoluir depois.)
+
+### 1.4. Atualização em cadeia já é coberta
+
+`FinanceContext` já assina realtime em `pluggy_transactions / pluggy_accounts / pluggy_bills / category_budgets` e chama `refresh()`. Como o cron grava nessas tabelas via `pluggy-sync-data`, **extrato, dashboard, faturas e categorias atualizam automaticamente** sem nenhuma alteração extra. Garantido.
 
 ---
 
-## 2. Preparar o site para **modo claro** (padrão) com toggle no escuro
+## 2. Dashboard novo — claro, conciso, mobile-first
 
-Hoje o app força `dark` em três lugares: `<html class="dark">` no `index.html`, `html { @apply dark }` no `src/index.css`, e o tema só existe em variáveis dark no `:root`. Precisamos:
+Reescrita de `src/pages/app/Dashboard.tsx` inspirada na referência (Visor) mas usando nossos tokens. Layout em **uma coluna no mobile**, **2 colunas no md+**, **3 colunas no lg+**.
 
-### 2.1. Definir variáveis para o tema **claro** (padrão) e mover as atuais para `.dark`
+### 2.1. Estrutura (top → bottom)
 
-Em `src/index.css`:
-- O bloco atual de `:root` contém valores **dark**. Vamos:
-  - Criar um novo `:root` com a paleta **clara** (legível, premium, mantendo a identidade azul/dourado da Nivra).
-  - Mover **todas** as variáveis dark de hoje para o seletor `.dark` (já existe um esqueleto, mas está incompleto — faltam gradients, shadows, sidebar, transitions).
-- Variáveis a duplicar nos dois temas (com valores apropriados):
-  - Cores base: `--background, --foreground, --card, --card-foreground, --popover, --popover-foreground, --primary, --primary-foreground, --primary-glow, --secondary, --secondary-foreground, --muted, --muted-foreground, --accent, --accent-foreground, --success, --success-foreground, --warning, --warning-foreground, --destructive, --destructive-foreground, --border, --input, --ring`
-  - Sidebar: `--sidebar-*` (8 vars)
-  - Gradients/shadows: `--gradient-primary, --gradient-hero, --gradient-card, --gradient-gold, --gradient-mesh, --shadow-elegant, --shadow-card, --shadow-glow`
-  - Misc: `--radius`, `--transition-smooth`
+1. **Header compacto** — saudação + label do ciclo (já existe, manter enxuto).
 
-**Paleta clara proposta (HSL, sem `hsl()` no valor — padrão do projeto):**
-```
---background: 210 40% 98%;
---foreground: 222 47% 11%;
---card: 0 0% 100%;
---card-foreground: 222 47% 11%;
---popover: 0 0% 100%;
---popover-foreground: 222 47% 11%;
---primary: 214 95% 52%;          /* um pouco mais escuro p/ contraste em fundo claro */
---primary-foreground: 0 0% 100%;
---primary-glow: 214 100% 65%;
---secondary: 214 32% 94%;
---secondary-foreground: 222 47% 11%;
---muted: 210 30% 95%;
---muted-foreground: 215 16% 40%;
---accent: 38 92% 50%;
---accent-foreground: 222 47% 11%;
---success: 152 65% 38%;
---success-foreground: 0 0% 100%;
---warning: 38 92% 45%;
---warning-foreground: 222 47% 11%;
---destructive: 0 75% 50%;
---destructive-foreground: 0 0% 100%;
---border: 214 20% 88%;
---input: 214 20% 92%;
---ring: 214 95% 52%;
+2. **Linha de KPIs** (4 cards no desktop, grid 2×2 no mobile):
+   - **Patrimônio** (substitui "Saldo consolidado") — soma `balance` de contas com `type !== 'CREDIT'` + `automatically_invested_balance` quando presente + futuras contas com `type === 'INVESTMENT'`. Cartões ficam fora. Subtítulo em `text-xs`: `"Contas + investimentos · cartões não incluídos"`.
+   - **Entradas no ciclo** — `cycleTotals.entradas`, trend vs ciclo anterior.
+   - **Saídas no ciclo** — `cycleTotals.saidas`, trend.
+   - **Resultado do ciclo** — `cycleTotals.saldo`, trend, cor verde/vermelha.
 
-/* Sidebar light */
---sidebar-background: 0 0% 100%;
---sidebar-foreground: 222 30% 25%;
---sidebar-primary: 214 95% 52%;
---sidebar-primary-foreground: 0 0% 100%;
---sidebar-accent: 214 32% 94%;
---sidebar-accent-foreground: 222 47% 11%;
---sidebar-border: 214 20% 90%;
---sidebar-ring: 214 95% 52%;
+   Nova função utilitária no `FinanceContext`: `netWorth` calculado a partir de `accounts`:
+   ```ts
+   const netWorth = useMemo(() => {
+     return accounts.reduce((sum, a) => {
+       const type = (a.type ?? "").toUpperCase();
+       if (type === "CREDIT") return sum;        // ignora cartões
+       const invested = a.automaticallyInvestedBalance ?? 0;   // novo campo
+       return sum + (a.balance ?? 0) + invested;
+     }, 0);
+   }, [accounts]);
+   ```
+   Para isso adicionar `automatically_invested_balance` no SELECT de `pluggy_accounts` e no tipo `FinanceAccount`. Hoje a coluna existe na tabela mas não é trazida.
 
-/* Gradients/shadows light */
---gradient-primary: linear-gradient(135deg, hsl(214 95% 52%), hsl(214 100% 65%));
---gradient-hero: radial-gradient(ellipse at top, hsl(214 95% 52% / 0.12), transparent 60%), linear-gradient(180deg, hsl(210 40% 99%), hsl(214 32% 96%));
---gradient-card: linear-gradient(180deg, hsl(0 0% 100%), hsl(214 32% 97%));
---gradient-gold: linear-gradient(135deg, hsl(38 92% 55%), hsl(38 92% 45%));
---gradient-mesh: radial-gradient(at 20% 0%, hsl(214 95% 52% / 0.10) 0%, transparent 50%), radial-gradient(at 80% 100%, hsl(214 100% 65% / 0.08) 0%, transparent 50%);
---shadow-elegant: 0 10px 40px -12px hsl(214 95% 52% / 0.25);
---shadow-card: 0 4px 20px -8px hsl(214 30% 60% / 0.15);
---shadow-glow: 0 0 60px hsl(214 100% 65% / 0.20);
-```
+3. **Card grande "Resultado do ciclo"** (ocupa col-span-2 no lg) — gráfico de área com **entradas (verde)** e **saídas (vermelha)** ao longo dos dias do ciclo. Componente Recharts `AreaChart` com 2 séries empilhadas. Vazio: mensagem clara, sem skeleton fake.
 
-E **completar** o seletor `.dark { … }` com a paleta atual (a que está hoje em `:root`), incluindo sidebar, gradients e shadows.
+4. **Card "Despesas por categoria"** (col 3 no lg) — donut Recharts já existe; manter, mas renomear título para "Principais categorias do ciclo" e mostrar legenda das **top 4** com **valor + % do total**. Click eventualmente leva para `/app/categorizacao` (link "Ver detalhes →" no header).
 
-### 2.2. Tornar o tema claro o **padrão**
+5. **Card "Orçamentos no mês"** (col-span-2 no lg) — lista compacta de até 4 `budgetProgress`, ordenados pelos mais críticos (over → alert → ok). Cada linha: ícone, nome, barra (`Progress`), `R$ gasto / R$ limite`, badge de status. Vazio: CTA "Definir orçamentos" → `/app/categorizacao`.
 
-- `index.html`: alterar `<html lang="pt-BR" class="dark">` para `<html lang="pt-BR">`.
-- `src/index.css`: remover `html { @apply dark; }` do bloco `@layer base`.
+6. **Card "Faturas do mês"** (col 3) — usando `bills` filtrados pelo ciclo atual:
+   - Total agregado em destaque.
+   - Lista de até 3 cartões com nome (do `accounts` via `pluggyAccountId`) + valor da fatura atual.
+   - Link "Ver todas →" para `/app/faturas`.
+   - Vazio: "Nenhuma fatura em aberto neste mês."
 
-### 2.3. Toggle de tema com persistência
+7. **Card "Movimentações recentes"** (full width) — já existe; manter mas:
+   - Top 8 transações.
+   - Badge da categoria (cor de `CATEGORY_COLORS`) próxima ao nome — visual igual à referência.
+   - Mobile: layout vertical (descrição em cima, badge + valor embaixo).
 
-Já existe `next-themes` (`^0.3.0`) em `package.json` (usado por `sonner.tsx`) — vamos usá-lo para evitar reinventar a roda.
+### 2.2. Otimização mobile
 
-- **Novo arquivo `src/components/ThemeProvider.tsx`** — wrapper fino do `ThemeProvider` de `next-themes` configurado com:
-  - `attribute="class"`, `defaultTheme="light"`, `enableSystem={false}`, `storageKey="nivra:theme"`, `disableTransitionOnChange`.
-- **`src/App.tsx`**: envolver a árvore com o `ThemeProvider` (entre `TooltipProvider` e `BrowserRouter`).
+- Todos os cards: `p-4 md:p-6`, títulos `text-sm md:text-base`, números `text-xl md:text-2xl`.
+- KPIs: grid `grid-cols-2 lg:grid-cols-4`, ícones menores no mobile (`h-3.5 md:h-4`).
+- Gráficos: `height={180}` no mobile, `height={240}` no md+. Donut com `innerRadius={45}` no mobile.
+- Lista de transações: hover só no md+; no mobile `divide-y divide-border` com `py-3` para toque confortável.
+- Aviso de sincronização (texto pequeno) no rodapé do dashboard:
+  > _"Atualizamos seus dados automaticamente 2× ao dia (00:00 e 12:00 BRT)."_
 
-### 2.4. UI de troca de tema em **Configurações**
+### 2.3. Itens removidos do dashboard atual
 
-Em `src/pages/app/Configuracoes.tsx`, no card **Preferências**:
-- Substituir o item estático "Tema escuro" por um item funcional ligado ao `useTheme()`:
-  - Título: **"Modo escuro"**, descrição: **"Use uma aparência escura para ambientes com pouca luz."**
-  - `<Switch checked={theme === "dark"} onCheckedChange={(v) => setTheme(v ? "dark" : "light")} />`
-- Para evitar o flash de hidratação típico do `next-themes`, usar um `mounted` flag (`useEffect` simples) e renderizar o switch só após montar (ou usar `defaultChecked` controlado).
+- Card "Evolução do saldo (Aguardando dados)" → substituído pelo card de Resultado do ciclo (tem dado real desde já).
+- Card "Receitas vs Despesas (Comparativo mensal)" → também placeholder; será reaproveitado em iteração futura.
+- Card "Insights com IA" → fora do escopo desta entrega; remover por agora para não poluir.
 
-### 2.5. Garantir legibilidade — pequenos ajustes nas páginas
-
-A maioria do app já usa tokens semânticos (`bg-background`, `text-foreground`, `border-border`, `bg-card`, `bg-secondary/40`, etc.), então funciona automaticamente. Vamos auditar e corrigir apenas pontos onde **opacidades** ou **classes utilitárias diretas** podem comprometer o contraste no claro:
-
-- `src/pages/Landing.tsx`: o hero usa `bg-gradient-hero` + `bg-gradient-mesh opacity-60` — já fica adequado com a versão clara das variáveis. Sem mudança de markup.
-- `src/layouts/AppLayout.tsx`: header `bg-background/80 backdrop-blur` — funciona em ambos. Sem mudança.
-- `src/pages/app/Categorizacao.tsx`: a borda forte `border-primary` no card de categoria (introduzida nas últimas edições visuais) fica muito vibrante em modo claro — substituir por `border-border` (mantendo a aparência similar nos dois temas) **apenas se** quisermos suavizar; caso contrário, mantemos como pedido pelo usuário. **Decisão**: manter `border-primary` (preferência explícita anterior do usuário). Apenas confirmar visualmente no modo claro.
-- Toasts já reagem ao tema via `useTheme()` em `sonner.tsx` — sem mudanças.
-
-> Observação: nenhuma cor hard-coded (`text-white`, `bg-black`, `#hex`) será introduzida. Tudo via tokens semânticos.
-
-### 2.6. Sem flicker no carregamento
-
-`next-themes` injeta um pequeno script automaticamente em apps React puros (não-Next), mas como estamos em Vite/SPA, o `defaultTheme="light"` + `attribute="class"` cuida do caso comum. Como o padrão é **light** e o HTML não terá mais `class="dark"`, a primeira pintura sai correta em claro. Quando o usuário escolhe escuro, o `next-themes` aplica `class="dark"` no `<html>` antes da hidratação visual relevante.
+> Sobre **Faturas no dashboard**: você não respondeu na pergunta, mas como a referência destaca esse bloco e ele agrega muito valor (você já tem cartões conectados), vou **incluir** o card. Se preferir um dashboard ainda mais enxuto, basta pedir e ele sai numa próxima iteração.
 
 ---
 
-## Arquivos afetados
+## 3. Arquivos afetados
 
 | Arquivo | Mudança |
 |---|---|
-| `src/pages/app/Categorizacao.tsx` | Remove aba Pendentes, Tabs, imports/estado não usados |
-| `src/components/AppSidebar.tsx` | Remove badge "pending" do item Categorias |
-| `src/index.css` | Adiciona paleta clara em `:root`; move dark completo para `.dark`; remove `@apply dark` |
-| `index.html` | Remove `class="dark"` do `<html>` |
-| `src/components/ThemeProvider.tsx` | **Novo**: wrapper do `next-themes` (default `light`) |
-| `src/App.tsx` | Envolve a árvore com `ThemeProvider` |
-| `src/pages/app/Configuracoes.tsx` | Switch funcional **Modo escuro** ligado ao `useTheme` |
+| `supabase/migrations/<novo>.sql` | Cria `trigger_pluggy_sync_all()`, habilita `pg_cron`/`pg_net` |
+| `supabase/functions/pluggy-sync-data/index.ts` | Aceita chamada via service role (cron); resolve `user_id` direto do item |
+| `supabase/functions/pluggy-sync-item/` | **Apagar** pasta (não há mais consumidor) |
+| `supabase/config.toml` | Remove bloco `[functions.pluggy-sync-item]` |
+| `src/pages/app/Conexoes.tsx` | Remove `handleSync`, botão "Sincronizar"; adiciona aviso de sync automática 2×/dia |
+| `src/pages/app/Dashboard.tsx` | Reescrita: KPIs (Patrimônio + ciclo), Resultado do ciclo, Categorias, Orçamentos, Faturas, Recentes |
+| `src/contexts/FinanceContext.tsx` | Adiciona `netWorth`, traz `automatically_invested_balance` no SELECT, expõe no `FinanceAccount` |
+| `src/integrations/supabase/types.ts` | Auto-regenerado após migration (não editamos) |
 
-Sem migrações de banco, sem mudanças no contexto Finance, sem novas dependências (next-themes já instalado).
+**Insert tool (em separado, com dados do projeto):**
+- Configura `app.settings.sync_url` e `app.settings.service_key`.
+- `cron.schedule` dos dois jobs `0 3 * * *` e `0 15 * * *`.
+
+Sem novas dependências. Sem mudanças nas tabelas (somente seleção de colunas existentes).

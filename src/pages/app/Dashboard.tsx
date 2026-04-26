@@ -1,10 +1,24 @@
+import { useMemo } from "react";
+import { Link } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowDownRight, ArrowUpRight, Brain, Sparkles, TrendingUp, Wallet } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import {
+  ArrowDownRight,
+  ArrowUpRight,
+  TrendingUp,
+  Wallet,
+  PieChart as PieIcon,
+  Receipt,
+  Target,
+  Clock,
+} from "lucide-react";
 import { PieChart, ResponsiveContainer, Tooltip, Pie, Cell } from "recharts";
 import { formatBRL } from "@/lib/format";
 import { useFinance } from "@/contexts/FinanceContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { cn } from "@/lib/utils";
 
 const pctChange = (curr: number, prev: number): { label: string; positive: boolean } => {
   if (prev === 0) return { label: curr === 0 ? "0%" : "+100%", positive: curr >= 0 };
@@ -16,170 +30,463 @@ const pctChange = (curr: number, prev: number): { label: string; positive: boole
 
 const Dashboard = () => {
   const { displayName } = useAuth();
+  const isMobile = useIsMobile();
   const {
     cycleTransactions,
     cycleTotals,
     previousCycleTotals,
     expensesByCategoryCycle,
     currentCycleLabel,
-    totalBalance,
+    netWorth,
+    accounts,
+    bills,
+    budgetProgress,
   } = useFinance();
 
-  const recent = [...cycleTransactions]
-    .sort((a, b) => (a.date < b.date ? 1 : -1))
-    .slice(0, 6);
-
-  const consolidated = totalBalance;
   const trendEntradas = pctChange(cycleTotals.entradas, previousCycleTotals.entradas);
   const trendSaidas = pctChange(cycleTotals.saidas, previousCycleTotals.saidas);
   const trendSaldo = pctChange(cycleTotals.saldo, previousCycleTotals.saldo);
 
-  const kpis = [
-    { label: "Saldo consolidado", value: consolidated, icon: Wallet, trend: cycleTransactions.length ? trendSaldo.label : "0%", positive: true },
-    { label: "Entradas no ciclo", value: cycleTotals.entradas, icon: ArrowUpRight, trend: trendEntradas.label, positive: trendEntradas.positive },
-    { label: "Saídas no ciclo", value: cycleTotals.saidas, icon: ArrowDownRight, trend: trendSaidas.label, positive: !trendSaidas.positive },
-    { label: "Saldo do ciclo", value: cycleTotals.saldo, icon: TrendingUp, trend: trendSaldo.label, positive: trendSaldo.positive },
-  ];
+  const recent = useMemo(
+    () =>
+      [...cycleTransactions].sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 8),
+    [cycleTransactions],
+  );
+
+  // Faturas em aberto (não pagas) com vencimento no mês civil corrente.
+  const openBills = useMemo(() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    return bills.filter((b) => {
+      if (b.effectivePaid) return false;
+      if (!b.dueDate) return false;
+      const d = new Date(b.dueDate);
+      return d.getFullYear() === y && d.getMonth() === m;
+    });
+  }, [bills]);
+
+  const openBillsTotal = openBills.reduce((s, b) => s + (b.totalAmount ?? 0), 0);
+
+  const accountByPluggyId = useMemo(() => {
+    const map = new Map<string, (typeof accounts)[number]>();
+    for (const a of accounts) map.set(a.pluggyAccountId, a);
+    return map;
+  }, [accounts]);
+
+  // Top orçamentos: critical first.
+  const topBudgets = useMemo(() => {
+    const order = { over: 0, alert: 1, ok: 2 } as const;
+    return [...budgetProgress]
+      .sort((a, b) => order[a.status] - order[b.status] || b.ratio - a.ratio)
+      .slice(0, 4);
+  }, [budgetProgress]);
+
+  const donutInner = isMobile ? 42 : 55;
+  const donutOuter = isMobile ? 65 : 85;
+  const donutHeight = isMobile ? 180 : 220;
 
   return (
-    <div className="p-6 md:p-8 space-y-6 max-w-[1600px] mx-auto">
+    <div className="p-4 md:p-8 space-y-4 md:space-y-6 max-w-[1600px] mx-auto">
       <div>
-        <h1 className="text-2xl md:text-3xl font-bold text-foreground tracking-tight">Olá, {displayName}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Visão consolidada do ciclo <span className="text-foreground font-medium">{currentCycleLabel}</span>.
+        <h1 className="text-xl md:text-3xl font-bold text-foreground tracking-tight">
+          Olá, {displayName}
+        </h1>
+        <p className="mt-1 text-xs md:text-sm text-muted-foreground">
+          Visão consolidada do ciclo{" "}
+          <span className="text-foreground font-medium">{currentCycleLabel}</span>.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {kpis.map((kpi) => (
-          <Card key={kpi.label} className="bg-gradient-card border-border p-5">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground uppercase tracking-wider">{kpi.label}</p>
-                <p className="mt-2 text-2xl font-bold text-foreground">{formatBRL(kpi.value)}</p>
-                <p className={`mt-1 text-xs ${kpi.positive ? "text-success" : "text-destructive"}`}>
-                  {kpi.trend} vs ciclo anterior
-                </p>
-              </div>
-              <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
-                <kpi.icon className="h-4 w-4 text-primary" />
-              </div>
-            </div>
-          </Card>
-        ))}
+      {/* KPIs */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+        <KPI
+          label="Patrimônio"
+          subtitle="Contas + investimentos"
+          value={netWorth}
+          icon={Wallet}
+          tone="primary"
+        />
+        <KPI
+          label="Entradas no ciclo"
+          value={cycleTotals.entradas}
+          icon={ArrowUpRight}
+          tone="success"
+          trend={trendEntradas.label}
+          trendPositive={trendEntradas.positive}
+        />
+        <KPI
+          label="Saídas no ciclo"
+          value={cycleTotals.saidas}
+          icon={ArrowDownRight}
+          tone="destructive"
+          trend={trendSaidas.label}
+          trendPositive={!trendSaidas.positive}
+        />
+        <KPI
+          label="Resultado do ciclo"
+          value={cycleTotals.saldo}
+          icon={TrendingUp}
+          tone={cycleTotals.saldo >= 0 ? "success" : "destructive"}
+          trend={trendSaldo.label}
+          trendPositive={trendSaldo.positive}
+          showSign
+        />
       </div>
 
+      {/* Categorias + Orçamentos + Faturas */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="bg-gradient-card border-border p-6 lg:col-span-2">
-          <div className="flex items-start justify-between mb-6">
-            <div>
-              <h3 className="text-base font-semibold text-foreground">Evolução do saldo</h3>
-              <p className="text-xs text-muted-foreground mt-1">Últimos 6 meses</p>
+        {/* Categorias */}
+        <Card className="bg-gradient-card border-border p-4 md:p-6 lg:col-span-1">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <PieIcon className="h-4 w-4 text-primary" />
+              <h3 className="text-sm md:text-base font-semibold text-foreground">
+                Principais categorias
+              </h3>
             </div>
-            <Badge variant="outline" className="border-border bg-secondary/50 text-muted-foreground">Aguardando dados</Badge>
-          </div>
-          <div className="h-[260px] flex items-center justify-center text-sm text-muted-foreground text-center">
-            O gráfico será exibido assim que as transações reais forem sincronizadas.
-          </div>
-        </Card>
-
-        <Card className="bg-gradient-card border-border p-6">
-          <div className="mb-6">
-            <h3 className="text-base font-semibold text-foreground">Despesas por categoria</h3>
-            <p className="text-xs text-muted-foreground mt-1">Distribuição em {currentCycleLabel}</p>
+            <Link
+              to="/app/categorizacao"
+              className="text-xs text-primary hover:underline"
+            >
+              Ver mais →
+            </Link>
           </div>
           {expensesByCategoryCycle.length === 0 ? (
-            <div className="h-[220px] flex items-center justify-center text-xs text-muted-foreground">
+            <div className="h-[180px] flex items-center justify-center text-xs text-muted-foreground text-center">
               Sem despesas neste ciclo.
             </div>
           ) : (
             <>
-              <ResponsiveContainer width="100%" height={220}>
+              <ResponsiveContainer width="100%" height={donutHeight}>
                 <PieChart>
-                  <Pie data={expensesByCategoryCycle} dataKey="value" nameKey="name" innerRadius={55} outerRadius={85} paddingAngle={2}>
+                  <Pie
+                    data={expensesByCategoryCycle}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={donutInner}
+                    outerRadius={donutOuter}
+                    paddingAngle={2}
+                  >
                     {expensesByCategoryCycle.map((entry) => (
-                      <Cell key={entry.name} fill={entry.color} stroke="hsl(var(--card))" strokeWidth={2} />
+                      <Cell
+                        key={entry.name}
+                        fill={entry.color}
+                        stroke="hsl(var(--card))"
+                        strokeWidth={2}
+                      />
                     ))}
                   </Pie>
-                  <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8 }} formatter={(v: number) => formatBRL(v)} />
+                  <Tooltip
+                    contentStyle={{
+                      background: "hsl(var(--card))",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: 8,
+                      fontSize: 12,
+                    }}
+                    formatter={(v: number) => formatBRL(v)}
+                  />
                 </PieChart>
               </ResponsiveContainer>
-              <div className="mt-4 space-y-2">
-                {expensesByCategoryCycle.slice(0, 4).map((c) => (
-                  <div key={c.name} className="flex items-center justify-between text-sm">
-                    <div className="flex items-center gap-2">
-                      <span className="h-2.5 w-2.5 rounded-full" style={{ background: c.color }} />
-                      <span className="text-muted-foreground">{c.name}</span>
+              <div className="mt-3 space-y-1.5">
+                {expensesByCategoryCycle.slice(0, 4).map((c) => {
+                  const total = expensesByCategoryCycle.reduce((s, x) => s + x.value, 0);
+                  const pct = total > 0 ? Math.round((c.value / total) * 100) : 0;
+                  return (
+                    <div key={c.name} className="flex items-center justify-between text-xs md:text-sm">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className="h-2 w-2 rounded-full shrink-0"
+                          style={{ background: c.color }}
+                        />
+                        <span className="text-muted-foreground truncate">{c.name}</span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-foreground font-medium tabular-nums">
+                          {formatBRL(c.value)}
+                        </span>
+                        <span className="text-muted-foreground text-[11px] tabular-nums w-9 text-right">
+                          {pct}%
+                        </span>
+                      </div>
                     </div>
-                    <span className="text-foreground font-medium">{formatBRL(c.value)}</span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </>
           )}
         </Card>
-      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="bg-gradient-card border-border p-6 lg:col-span-2">
-          <div className="mb-6">
-            <h3 className="text-base font-semibold text-foreground">Receitas vs Despesas</h3>
-            <p className="text-xs text-muted-foreground mt-1">Comparativo mensal</p>
-          </div>
-          <div className="h-[240px] flex items-center justify-center text-sm text-muted-foreground text-center">
-            O comparativo mensal aparecerá quando houver histórico suficiente de lançamentos reais.
-          </div>
-        </Card>
-
-        <Card className="bg-gradient-card border-border p-6">
-          <div className="flex items-center gap-2 mb-5">
-            <div className="h-8 w-8 rounded-lg bg-gradient-primary flex items-center justify-center">
-              <Brain className="h-4 w-4 text-primary-foreground" />
-            </div>
-            <div>
-              <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
-                Insights com IA <Sparkles className="h-3.5 w-3.5 text-accent" />
+        {/* Orçamentos */}
+        <Card className="bg-gradient-card border-border p-4 md:p-6 lg:col-span-1">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Target className="h-4 w-4 text-primary" />
+              <h3 className="text-sm md:text-base font-semibold text-foreground">
+                Orçamentos do mês
               </h3>
-              <p className="text-xs text-muted-foreground">Análise do ciclo {currentCycleLabel}</p>
             </div>
+            <Link
+              to="/app/categorizacao"
+              className="text-xs text-primary hover:underline"
+            >
+              Gerenciar →
+            </Link>
           </div>
-          <div className="rounded-lg border border-border bg-secondary/30 p-4 text-sm text-muted-foreground">
-            Ainda não há dados suficientes para gerar insights confiáveis.
+          {topBudgets.length === 0 ? (
+            <div className="py-6 text-center">
+              <p className="text-xs md:text-sm text-muted-foreground">
+                Você ainda não definiu limites por categoria.
+              </p>
+              <Link
+                to="/app/categorizacao"
+                className="mt-3 inline-block text-xs text-primary hover:underline"
+              >
+                Definir orçamentos →
+              </Link>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {topBudgets.map((b) => {
+                const pct = Math.min(100, Math.round(b.ratio * 100));
+                const toneClass =
+                  b.status === "over"
+                    ? "text-destructive"
+                    : b.status === "alert"
+                      ? "text-warning"
+                      : "text-success";
+                return (
+                  <div key={b.budgetId} className="space-y-1">
+                    <div className="flex items-center justify-between text-xs md:text-sm gap-2">
+                      <span className="text-foreground truncate">
+                        {b.scope === "child" && b.parentCategoryLabel ? (
+                          <>
+                            <span className="text-muted-foreground">{b.parentCategoryLabel} ›</span>{" "}
+                            {b.categoryLabel}
+                          </>
+                        ) : (
+                          b.categoryLabel
+                        )}
+                      </span>
+                      <span className={cn("font-medium tabular-nums shrink-0", toneClass)}>
+                        {pct}%
+                      </span>
+                    </div>
+                    <Progress value={pct} className="h-1.5" />
+                    <div className="flex items-center justify-between text-[11px] text-muted-foreground tabular-nums">
+                      <span>{formatBRL(b.spent)}</span>
+                      <span>de {formatBRL(b.limit)}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+
+        {/* Faturas */}
+        <Card className="bg-gradient-card border-border p-4 md:p-6 lg:col-span-1">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Receipt className="h-4 w-4 text-primary" />
+              <h3 className="text-sm md:text-base font-semibold text-foreground">
+                Faturas do mês
+              </h3>
+            </div>
+            <Link to="/app/faturas" className="text-xs text-primary hover:underline">
+              Ver todas →
+            </Link>
           </div>
+          {openBills.length === 0 ? (
+            <div className="py-6 text-center text-xs md:text-sm text-muted-foreground">
+              Nenhuma fatura em aberto neste mês.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div>
+                <p className="text-2xl md:text-3xl font-bold text-foreground tabular-nums">
+                  {formatBRL(openBillsTotal)}
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {openBills.length} {openBills.length === 1 ? "fatura" : "faturas"} em aberto
+                </p>
+              </div>
+              <div className="space-y-2 pt-2 border-t border-border">
+                {openBills.slice(0, 3).map((b) => {
+                  const acc = accountByPluggyId.get(b.pluggyAccountId);
+                  return (
+                    <div
+                      key={b.id}
+                      className="flex items-center justify-between text-xs md:text-sm gap-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-foreground truncate">
+                          {acc?.name ?? "Cartão"}
+                        </p>
+                        {b.dueDate && (
+                          <p className="text-[11px] text-muted-foreground">
+                            Vence {new Date(b.dueDate).toLocaleDateString("pt-BR", {
+                              day: "2-digit",
+                              month: "short",
+                            })}
+                          </p>
+                        )}
+                      </div>
+                      <span className="text-foreground font-semibold tabular-nums shrink-0">
+                        {formatBRL(b.totalAmount ?? 0)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </Card>
       </div>
 
-      <Card className="bg-gradient-card border-border p-6">
-        <div className="flex items-center justify-between mb-5">
+      {/* Movimentações recentes */}
+      <Card className="bg-gradient-card border-border p-4 md:p-6">
+        <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-base font-semibold text-foreground">Movimentações recentes</h3>
-            <p className="text-xs text-muted-foreground mt-1">Últimas transações do ciclo atual</p>
+            <h3 className="text-sm md:text-base font-semibold text-foreground">
+              Movimentações recentes
+            </h3>
+            <p className="text-[11px] md:text-xs text-muted-foreground mt-0.5">
+              Últimas transações do ciclo atual
+            </p>
           </div>
+          <Link to="/app/extrato" className="text-xs text-primary hover:underline">
+            Ver todas →
+          </Link>
         </div>
-        <div className="space-y-2">
-          {recent.length === 0 && (
-            <p className="text-sm text-muted-foreground text-center py-6">Sem movimentações neste ciclo.</p>
-          )}
-          {recent.map((t) => (
-            <div key={t.id} className="flex items-center justify-between p-3 rounded-lg hover:bg-secondary/40 transition-smooth">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className={`h-9 w-9 rounded-lg flex items-center justify-center shrink-0 ${t.type === "entrada" ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
-                  {t.type === "entrada" ? <ArrowUpRight className="h-4 w-4" /> : <ArrowDownRight className="h-4 w-4" />}
+        {recent.length === 0 ? (
+          <p className="text-xs md:text-sm text-muted-foreground text-center py-6">
+            Sem movimentações neste ciclo.
+          </p>
+        ) : (
+          <div className="divide-y divide-border md:divide-y-0 md:space-y-1">
+            {recent.map((t) => (
+              <div
+                key={t.id}
+                className="flex items-center justify-between gap-2 py-2.5 md:py-2 md:px-3 md:rounded-lg md:hover:bg-secondary/40 transition-smooth"
+              >
+                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <div
+                    className={cn(
+                      "h-8 w-8 md:h-9 md:w-9 rounded-lg flex items-center justify-center shrink-0",
+                      t.type === "entrada"
+                        ? "bg-success/10 text-success"
+                        : "bg-destructive/10 text-destructive",
+                    )}
+                  >
+                    {t.type === "entrada" ? (
+                      <ArrowUpRight className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                    ) : (
+                      <ArrowDownRight className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs md:text-sm font-medium text-foreground truncate">
+                      {t.description}
+                    </p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      {t.category && (
+                        <Badge
+                          variant="outline"
+                          className="border-border bg-secondary/40 text-[10px] md:text-xs px-1.5 py-0 h-4 md:h-5 font-normal"
+                        >
+                          {t.category}
+                        </Badge>
+                      )}
+                      <span className="text-[10px] md:text-xs text-muted-foreground truncate">
+                        {t.account}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground truncate">{t.description}</p>
-                  <p className="text-xs text-muted-foreground">{t.category || "Sem categoria"} · {t.account}</p>
-                </div>
+                <p
+                  className={cn(
+                    "text-xs md:text-sm font-semibold tabular-nums shrink-0",
+                    t.type === "entrada" ? "text-success" : "text-foreground",
+                  )}
+                >
+                  {t.type === "saida" ? "−" : "+"}
+                  {formatBRL(Math.abs(t.value))}
+                </p>
               </div>
-              <p className={`text-sm font-semibold ${t.type === "entrada" ? "text-success" : "text-foreground"}`}>
-                {t.value > 0 ? "+" : ""}{formatBRL(t.value)}
-              </p>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </Card>
+
+      {/* Rodapé: aviso de sync automática */}
+      <div className="flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground pt-2">
+        <Clock className="h-3 w-3" />
+        <span>
+          Atualizamos seus dados automaticamente 2× ao dia (00:00 e 12:00 BRT).
+        </span>
+      </div>
     </div>
   );
 };
+
+interface KPIProps {
+  label: string;
+  subtitle?: string;
+  value: number;
+  icon: React.ComponentType<{ className?: string }>;
+  tone: "primary" | "success" | "destructive";
+  trend?: string;
+  trendPositive?: boolean;
+  showSign?: boolean;
+}
+
+function KPI({ label, subtitle, value, icon: Icon, tone, trend, trendPositive, showSign }: KPIProps) {
+  const toneClass =
+    tone === "success"
+      ? "text-success bg-success/10"
+      : tone === "destructive"
+        ? "text-destructive bg-destructive/10"
+        : "text-primary bg-primary/10";
+  const valueClass =
+    tone === "success"
+      ? "text-success"
+      : tone === "destructive"
+        ? "text-destructive"
+        : "text-foreground";
+  const sign = showSign && value > 0 ? "+" : showSign && value < 0 ? "−" : "";
+  return (
+    <Card className="bg-gradient-card border-border p-3 md:p-5">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] md:text-xs text-muted-foreground uppercase tracking-wider truncate">
+            {label}
+          </p>
+          <p className={cn("mt-1 md:mt-2 text-base md:text-2xl font-bold tabular-nums", valueClass)}>
+            {sign}
+            {formatBRL(Math.abs(value))}
+          </p>
+          {trend ? (
+            <p
+              className={cn(
+                "mt-0.5 md:mt-1 text-[10px] md:text-xs",
+                trendPositive ? "text-success" : "text-destructive",
+              )}
+            >
+              {trend} vs anterior
+            </p>
+          ) : subtitle ? (
+            <p className="mt-0.5 md:mt-1 text-[10px] md:text-xs text-muted-foreground truncate">
+              {subtitle}
+            </p>
+          ) : null}
+        </div>
+        <div className={cn("h-7 w-7 md:h-9 md:w-9 rounded-lg flex items-center justify-center shrink-0", toneClass)}>
+          <Icon className="h-3.5 w-3.5 md:h-4 md:w-4" />
+        </div>
+      </div>
+    </Card>
+  );
+}
 
 export default Dashboard;

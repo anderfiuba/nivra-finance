@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import {
   CheckCircle2,
   Plus,
-  RefreshCw,
   ShieldCheck,
   AlertTriangle,
   Lock,
@@ -13,6 +12,7 @@ import {
   Smartphone,
   Monitor,
   Plug,
+  Clock,
 } from "lucide-react";
 import { useDeviceType } from "@/hooks/useDeviceType";
 import { supabase } from "@/integrations/supabase/client";
@@ -46,7 +46,6 @@ const Conexoes = () => {
   const [items, setItems] = useState<PluggyItemRow[] | null>(null);
   const [loadingList, setLoadingList] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
-  const [syncingId, setSyncingId] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
 
   const loadItems = useCallback(async () => {
@@ -144,26 +143,6 @@ const Conexoes = () => {
     }
   };
 
-  const handleSync = async (itemId: string, bank: string) => {
-    setSyncingId(itemId);
-    try {
-      // 1. pede refresh na Pluggy
-      await supabase.functions.invoke("pluggy-sync-item", { body: { itemId } });
-      // 2. busca dados (accounts + transactions) e persiste
-      const { error } = await supabase.functions.invoke("pluggy-sync-data", {
-        body: { itemId },
-      });
-      if (error) throw error;
-      toast.success(`Sincronização concluída — ${bank}`);
-      loadItems();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Falha ao sincronizar.";
-      toast.error("Erro ao sincronizar", { description: message });
-    } finally {
-      setSyncingId(null);
-    }
-  };
-
   return (
     <div className="p-6 md:p-8 space-y-6 max-w-[1600px] mx-auto">
       <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -176,14 +155,6 @@ const Conexoes = () => {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={loadItems} disabled={loadingList}>
-            {loadingList ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4 mr-2" />
-            )}
-            Atualizar
-          </Button>
           <Button
             onClick={startConnection}
             disabled={connecting}
@@ -198,6 +169,19 @@ const Conexoes = () => {
           </Button>
         </div>
       </div>
+
+      <Card className="bg-primary/5 border-primary/30 p-4 flex items-start gap-3">
+        <div className="h-9 w-9 rounded-lg bg-primary/15 flex items-center justify-center shrink-0">
+          <Clock className="h-4 w-4 text-primary" />
+        </div>
+        <div className="flex-1">
+          <p className="text-sm font-semibold text-foreground">Sincronização automática</p>
+          <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">
+            Atualizamos seus dados <strong>2 vezes ao dia</strong> — às <strong>00:00 e 12:00</strong> (horário de Brasília).
+            Novas transações aparecem automaticamente em extrato, dashboard, categorias e faturas.
+          </p>
+        </div>
+      </Card>
 
       <Card className="bg-gradient-card border-border p-5 flex items-start gap-4">
         <div className="h-10 w-10 rounded-lg bg-success/10 flex items-center justify-center shrink-0">
@@ -324,24 +308,11 @@ const Conexoes = () => {
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5">
-                    <RefreshCw className="h-3 w-3" /> Última sincronização{" "}
+                    <Clock className="h-3 w-3" /> Última sincronização{" "}
                     {formatRelativeTime(it.last_synced_at ?? it.updated_at)}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 ml-auto">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleSync(it.pluggy_item_id, it.connector_name)}
-                    disabled={syncingId === it.pluggy_item_id}
-                  >
-                    {syncingId === it.pluggy_item_id ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
-                    ) : (
-                      <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
-                    )}
-                    Sincronizar
-                  </Button>
                   <DisconnectButton
                     itemId={it.pluggy_item_id}
                     connectorName={it.connector_name}
