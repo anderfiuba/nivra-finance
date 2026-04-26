@@ -4,6 +4,8 @@ import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { Wallet, ArrowRight } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { useFinance } from "@/contexts/FinanceContext";
 import { formatBRL } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -16,7 +18,7 @@ import { CategorySheet } from "@/components/disponivel/CategorySheet";
  * Sem poluição: só lista categorias com orçamento OU com gasto real no mês.
  */
 const Disponivel = () => {
-  const { budgetProgress, monthlyCategoryAggregates, currentMonthLabel } = useFinance();
+  const { budgetProgress, monthlyCategoryAggregates, currentMonthLabel, categories } = useFinance();
 
   const now = new Date();
   const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -30,6 +32,7 @@ const Disponivel = () => {
     parentCategoryLabel: string | null;
     budgetId: string | null;
   } | null>(null);
+  const [showAllCategories, setShowAllCategories] = useState(false);
 
   const openSheetForBudget = (b: (typeof budgetProgress)[number]) => {
     setSheetSelection({
@@ -75,6 +78,34 @@ const Disponivel = () => {
       .map((it) => ({ categoryLabel: it.parentLabel, spent: it.spent }))
       .slice(0, 6);
   }, [budgetProgress, monthlyCategoryAggregates, monthKey]);
+
+  // Catálogo de categorias-pai (PT-BR) que ainda não têm orçamento e nem gasto no mês.
+  // Permite ao usuário definir limite mesmo sem ter consumido na categoria.
+  const catalogParents = useMemo(() => {
+    const labelsWithBudget = new Set(
+      budgetProgress.filter((b) => b.scope === "parent").map((b) => b.categoryLabel),
+    );
+    const labelsWithSpend = new Set(unbudgeted.map((u) => u.categoryLabel));
+
+    // Coleta nomes únicos de categorias pai do catálogo Pluggy.
+    const parentSet = new Set<string>();
+    for (const c of categories) {
+      // Categoria pai: parentId === null. Usa parentDescription quando vier preenchida,
+      // senão a própria description traduzida.
+      const isParent = c.parentId === null;
+      if (!isParent) continue;
+      const label = (c.descriptionTranslated || c.description || "").trim();
+      if (!label) continue;
+      // Filtra transferências/pagamento de cartão (não são despesa real).
+      if (/^Transfer/i.test(label) || /transfer/i.test(label)) continue;
+      if (/cart[aã]o de cr[eé]dito|credit card payment/i.test(label)) continue;
+      parentSet.add(label);
+    }
+
+    return Array.from(parentSet)
+      .filter((label) => !labelsWithBudget.has(label) && !labelsWithSpend.has(label))
+      .sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [categories, budgetProgress, unbudgeted]);
 
   const isEmpty = budgetProgress.length === 0;
   const availablePositive = totals.available >= 0;
@@ -187,6 +218,37 @@ const Disponivel = () => {
               />
             ))}
           </div>
+        </section>
+      )}
+
+      {/* Toggle minimalista: ver todas as categorias-pai do catálogo (sem gasto ainda). */}
+      {catalogParents.length > 0 && (
+        <section className="space-y-2">
+          <div className="flex items-center justify-between gap-3 px-1">
+            <Label
+              htmlFor="show-all-cats"
+              className="text-xs text-muted-foreground cursor-pointer select-none"
+            >
+              Mostrar categorias sem gasto este mês
+            </Label>
+            <Switch
+              id="show-all-cats"
+              checked={showAllCategories}
+              onCheckedChange={setShowAllCategories}
+            />
+          </div>
+          {showAllCategories && (
+            <div className="space-y-2">
+              {catalogParents.map((label) => (
+                <CategoryBudgetCard
+                  key={label}
+                  unbudgeted={{ categoryLabel: label, spent: 0 }}
+                  onOpenSheet={() => openSheetForNew(label)}
+                  onCreateBudget={(l) => openSheetForNew(l)}
+                />
+              ))}
+            </div>
+          )}
         </section>
       )}
 
