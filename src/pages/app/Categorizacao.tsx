@@ -7,6 +7,7 @@ import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -48,6 +49,7 @@ const Categorizacao = () => {
   const [monthKey, setMonthKey] = useState<string>(currentMonthBucket().key);
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [showAllCategories, setShowAllCategories] = useState(false);
 
   // dialog
   const [dlgOpen, setDlgOpen] = useState(false);
@@ -218,6 +220,19 @@ const Categorizacao = () => {
   useEffect(() => {
     setExpanded({});
   }, [monthKey]);
+
+  // Categorias-pai do catálogo Pluggy que NÃO tiveram gasto no mês selecionado.
+  // Usadas quando o usuário ativa "Mostrar categorias sem gasto neste mês".
+  const parentsWithoutSpend = useMemo(() => {
+    const labelsWithSpend = new Set(monthly.items.map((i) => i.parentLabel));
+    return parentCategoryLabels.filter((label) => {
+      if (labelsWithSpend.has(label)) return false;
+      // filtra transferências e pagamento de cartão
+      if (/^Transfer/i.test(label) || /transfer/i.test(label)) return false;
+      if (/cart[aã]o de cr[eé]dito|credit card payment/i.test(label)) return false;
+      return true;
+    });
+  }, [parentCategoryLabels, monthly.items]);
 
   // ============== render ==============
   return (
@@ -489,6 +504,89 @@ const Categorizacao = () => {
               </div>
             )}
           </Card>
+
+          {/* Toggle minimalista + lista de categorias-pai sem gasto no mês */}
+          {parentsWithoutSpend.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3 px-1">
+                <Label
+                  htmlFor="cat-show-all"
+                  className="text-xs text-muted-foreground cursor-pointer select-none"
+                >
+                  Mostrar categorias sem gasto neste mês
+                </Label>
+                <Switch
+                  id="cat-show-all"
+                  checked={showAllCategories}
+                  onCheckedChange={setShowAllCategories}
+                />
+              </div>
+
+              {showAllCategories && (
+                <Card className="bg-gradient-card border-border overflow-hidden">
+                  <div className="flex flex-col gap-2 md:gap-0 md:divide-y md:divide-border p-2 md:p-0">
+                    {parentsWithoutSpend.map((label) => {
+                      const parentBudget = budgetByParent.get(label);
+                      return (
+                        <div
+                          key={label}
+                          className="p-3.5 md:p-5 rounded-lg bg-card/40 md:rounded-none md:bg-transparent flex items-center justify-between gap-3 mx-[5px] md:mx-0"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-sm font-medium text-foreground truncate">
+                                {label}
+                              </p>
+                              {parentBudget && (
+                                <Badge variant="outline" className="text-[10px] h-5 border-border bg-secondary/40">
+                                  Limite {formatBRL(parentBudget.monthlyLimit)}
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-muted-foreground mt-0.5">
+                              Sem gastos neste mês
+                            </p>
+                          </div>
+                          <div className="shrink-0 flex items-center gap-1">
+                            {parentBudget ? (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-xs"
+                                  onClick={() => openEditBudget(parentBudget.id)}
+                                >
+                                  <PencilLine className="h-3 w-3 mr-1" /> Editar
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                  onClick={() => removeBudget(parentBudget.id)}
+                                  aria-label="Remover orçamento"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs"
+                                onClick={() => openNewBudget("parent", label)}
+                              >
+                                <Plus className="h-3 w-3 mr-1" /> Definir limite
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </Card>
+              )}
+            </div>
+          )}
       </div>
 
       {/* ============= Dialog de orçamento ============= */}
