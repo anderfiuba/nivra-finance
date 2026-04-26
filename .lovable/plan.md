@@ -1,135 +1,143 @@
-## 🎯 Objetivo
 
-Transformar a aba **Categorias** numa visão mensal de consumos, no estilo da imagem de referência (Visor):
+## 1. Remover a sessão **Pendentes** da página Categorias
 
-- Lista somente categorias **com gasto no mês selecionado** (zero-spend não aparece).
-- Categoria pai expansível → mostra as filhas com gasto.
-- Mostra valor, % do gasto total, e barra de progresso (vs. orçamento, se existir; vs. maior gasto, caso contrário).
-- Navegação por mês (últimos 12 meses).
-- Orçamentos podem ser definidos **tanto por pai quanto por filha**, com validação: a soma dos limites das filhas **nunca pode exceder** o limite do pai.
+A página `Categorias` deixa de ser híbrida e passa a ter um único propósito: **visualizar gastos por categoria/subcategoria e definir limites mensais**.
 
----
+### Edições em `src/pages/app/Categorizacao.tsx`
+- Remover o uso de `Tabs / TabsList / TabsTrigger / TabsContent` — a página renderiza diretamente a visão "Por categoria".
+- Remover a aba **Pendentes** inteira (bloco `<TabsContent value="pendentes">…</TabsContent>`, ~linhas 537–612).
+- Remover imports e estados não utilizados:
+  - `Tabs, TabsContent, TabsList, TabsTrigger`
+  - `ArrowDownRight, ArrowUpRight, CheckCircle2, HelpCircle`
+  - `Transaction`, `formatDate`
+  - `pendingList`, `pendingByType`, `updateCategory` do `useFinance()`
+  - estado `draftCategory` e função `handleSaveCategory`
+  - `visible` e `semCategoriaCount`
+- Manter `parentCategoryLabels` (ainda usado no diálogo de orçamento) e o restante da lógica de orçamentos / agregados mensais intacta.
 
-## 📊 Análise da situação atual
+### Sidebar (`src/components/AppSidebar.tsx`)
+- Remover o badge `badgeKey: "pending"` do item **Categorias** (linha 24), já que a página deixa de tratar pendências. O contexto `pendingList` continua existindo para uso futuro, mas o badge na navegação é removido para evitar levar o usuário a uma aba que não existe mais.
+- Remover o import de `useFinance` se não houver mais usos no arquivo (após a remoção do badge).
 
-Estado hoje (`src/pages/app/Categorizacao.tsx` + `FinanceContext.tsx`):
-
-- `expensesByCategoryCycle` agrega despesas **só do ciclo de cartão** atual e **somente por categoria PAI** (em `FinanceContext.tsx:393-415` toda transação é resolvida para o pai antes de virar `Transaction.category`).
-- `category_budgets` aceita um único `category_label` por usuário, sem distinção pai/filha — não dá pra saber se um orçamento "Alimentação" é o pai ou uma filha homônima.
-- A UI lista `budgetProgress` + `expensesByCategoryCycle` numa lista plana, sem expansão de filhas.
-- Não há seletor de mês — usa o ciclo financeiro do usuário.
-
-Gaps a fechar:
-1. Precisamos preservar `categoryId` e `categoryParentId` na Transaction para conseguir agregar por **pai E filha**.
-2. `category_budgets` precisa de `scope` ('parent' | 'child') + opcionalmente `parent_category_label` pra validar a regra hierárquica.
-3. UI nova: agregação por mês civil (não por ciclo de cartão), listagem hierárquica colapsável.
+### O que **não** vamos remover
+- `pendingType`, `pendingList`, `pendingByType` no `FinanceContext` — continuam disponíveis caso, no futuro, exista uma tela dedicada a pendências. Apenas a UI em Categorias é limpa.
 
 ---
 
-## 🗂️ Mudanças propostas
+## 2. Preparar o site para **modo claro** (padrão) com toggle no escuro
 
-### 1. Banco de dados (migration nova)
+Hoje o app força `dark` em três lugares: `<html class="dark">` no `index.html`, `html { @apply dark }` no `src/index.css`, e o tema só existe em variáveis dark no `:root`. Precisamos:
 
-Adicionar colunas em `category_budgets` para suportar a hierarquia:
+### 2.1. Definir variáveis para o tema **claro** (padrão) e mover as atuais para `.dark`
 
-```sql
-ALTER TABLE public.category_budgets
-  ADD COLUMN scope text NOT NULL DEFAULT 'parent'
-    CHECK (scope IN ('parent','child')),
-  ADD COLUMN parent_category_label text NULL;
--- 'parent_category_label' só é preenchido quando scope='child'.
--- A unicidade continua (user_id, category_label).
+Em `src/index.css`:
+- O bloco atual de `:root` contém valores **dark**. Vamos:
+  - Criar um novo `:root` com a paleta **clara** (legível, premium, mantendo a identidade azul/dourado da Nivra).
+  - Mover **todas** as variáveis dark de hoje para o seletor `.dark` (já existe um esqueleto, mas está incompleto — faltam gradients, shadows, sidebar, transitions).
+- Variáveis a duplicar nos dois temas (com valores apropriados):
+  - Cores base: `--background, --foreground, --card, --card-foreground, --popover, --popover-foreground, --primary, --primary-foreground, --primary-glow, --secondary, --secondary-foreground, --muted, --muted-foreground, --accent, --accent-foreground, --success, --success-foreground, --warning, --warning-foreground, --destructive, --destructive-foreground, --border, --input, --ring`
+  - Sidebar: `--sidebar-*` (8 vars)
+  - Gradients/shadows: `--gradient-primary, --gradient-hero, --gradient-card, --gradient-gold, --gradient-mesh, --shadow-elegant, --shadow-card, --shadow-glow`
+  - Misc: `--radius`, `--transition-smooth`
+
+**Paleta clara proposta (HSL, sem `hsl()` no valor — padrão do projeto):**
+```
+--background: 210 40% 98%;
+--foreground: 222 47% 11%;
+--card: 0 0% 100%;
+--card-foreground: 222 47% 11%;
+--popover: 0 0% 100%;
+--popover-foreground: 222 47% 11%;
+--primary: 214 95% 52%;          /* um pouco mais escuro p/ contraste em fundo claro */
+--primary-foreground: 0 0% 100%;
+--primary-glow: 214 100% 65%;
+--secondary: 214 32% 94%;
+--secondary-foreground: 222 47% 11%;
+--muted: 210 30% 95%;
+--muted-foreground: 215 16% 40%;
+--accent: 38 92% 50%;
+--accent-foreground: 222 47% 11%;
+--success: 152 65% 38%;
+--success-foreground: 0 0% 100%;
+--warning: 38 92% 45%;
+--warning-foreground: 222 47% 11%;
+--destructive: 0 75% 50%;
+--destructive-foreground: 0 0% 100%;
+--border: 214 20% 88%;
+--input: 214 20% 92%;
+--ring: 214 95% 52%;
+
+/* Sidebar light */
+--sidebar-background: 0 0% 100%;
+--sidebar-foreground: 222 30% 25%;
+--sidebar-primary: 214 95% 52%;
+--sidebar-primary-foreground: 0 0% 100%;
+--sidebar-accent: 214 32% 94%;
+--sidebar-accent-foreground: 222 47% 11%;
+--sidebar-border: 214 20% 90%;
+--sidebar-ring: 214 95% 52%;
+
+/* Gradients/shadows light */
+--gradient-primary: linear-gradient(135deg, hsl(214 95% 52%), hsl(214 100% 65%));
+--gradient-hero: radial-gradient(ellipse at top, hsl(214 95% 52% / 0.12), transparent 60%), linear-gradient(180deg, hsl(210 40% 99%), hsl(214 32% 96%));
+--gradient-card: linear-gradient(180deg, hsl(0 0% 100%), hsl(214 32% 97%));
+--gradient-gold: linear-gradient(135deg, hsl(38 92% 55%), hsl(38 92% 45%));
+--gradient-mesh: radial-gradient(at 20% 0%, hsl(214 95% 52% / 0.10) 0%, transparent 50%), radial-gradient(at 80% 100%, hsl(214 100% 65% / 0.08) 0%, transparent 50%);
+--shadow-elegant: 0 10px 40px -12px hsl(214 95% 52% / 0.25);
+--shadow-card: 0 4px 20px -8px hsl(214 30% 60% / 0.15);
+--shadow-glow: 0 0 60px hsl(214 100% 65% / 0.20);
 ```
 
-Sem CHECK constraint cross-row — a validação **soma_filhas ≤ pai** roda no client (no momento do salvamento do orçamento) e no edge ao escrever (defesa em profundidade não é necessária aqui por enquanto, mas pode entrar num próximo passo).
+E **completar** o seletor `.dark { … }` com a paleta atual (a que está hoje em `:root`), incluindo sidebar, gradients e shadows.
 
-### 2. Tipo `Transaction` (em `src/data/mockData.ts`)
+### 2.2. Tornar o tema claro o **padrão**
 
-Acrescentar campos opcionais:
-- `categoryId?: string` — id Pluggy da categoria resolvida
-- `categoryParentId?: string | null` — id do pai
-- `categoryChildLabel?: string` — rótulo PT-BR da categoria filha original (antes de resolver pra pai)
+- `index.html`: alterar `<html lang="pt-BR" class="dark">` para `<html lang="pt-BR">`.
+- `src/index.css`: remover `html { @apply dark; }` do bloco `@layer base`.
 
-### 3. `FinanceContext.tsx`
+### 2.3. Toggle de tema com persistência
 
-- Quando montar cada `Transaction`, **manter o pai como `category` (não muda — preserva extrato)**, mas também guardar `categoryChildLabel` (descrição traduzida da categoria original) e `categoryId/categoryParentId`.
-- Adicionar selector novo `expensesByMonth(monthKey)` que agrega por (pai → filhas) num único mês civil. Estrutura retornada:
-  ```ts
-  type CategoryMonthlyAgg = {
-    parentLabel: string;
-    parentId: string | null;
-    spent: number;
-    pctOfTotal: number;
-    children: { label: string; spent: number; pctOfParent: number }[];
-  };
-  ```
-  - Despesas sem categoria filha conhecida → bucket "Outros (categoria pai)" dentro do próprio pai.
-  - Filtra transferências e pagamento de cartão (mesma regra atual).
-- Atualizar `CategoryBudget` para incluir `scope` e `parentCategoryLabel`.
-- `upsertBudget(label, limit, threshold, scope, parentLabel?)` — assinatura nova.
-- Novo derivado `budgetValidation(parentLabel, attemptedChildLimit, currentChildId?)` que retorna se o limite cabe dentro do pai.
+Já existe `next-themes` (`^0.3.0`) em `package.json` (usado por `sonner.tsx`) — vamos usá-lo para evitar reinventar a roda.
 
-### 4. Página `Categorizacao.tsx` (refatoração)
+- **Novo arquivo `src/components/ThemeProvider.tsx`** — wrapper fino do `ThemeProvider` de `next-themes` configurado com:
+  - `attribute="class"`, `defaultTheme="light"`, `enableSystem={false}`, `storageKey="nivra:theme"`, `disableTransitionOnChange`.
+- **`src/App.tsx`**: envolver a árvore com o `ThemeProvider` (entre `TooltipProvider` e `BrowserRouter`).
 
-**Layout da aba "Por categoria" (nova, default):**
+### 2.4. UI de troca de tema em **Configurações**
 
-```
-┌─────────────────────────────────────────────┐
-│ [< abr 26 >]                       Filtros │
-├─────────────────────────────────────────────┤
-│ Total gasto no mês: R$ 2.345,67   12 categs│
-├─────────────────────────────────────────────┤
-│ ▸ 🍔 Alimentação      R$ 540  23%  ▓▓▓▓░░ │  ← clique expande
-│   ↳ Restaurantes      R$ 320  59%  ▓▓▓▓▓░ │
-│   ↳ Delivery          R$ 220  41%  ▓▓▓░░░ │
-│ ▸ 🛒 Compras          R$ 410  17%  ▓▓▓░░░ │
-│ ▸ 💡 Moradia          R$ 380  16%  ▓▓░░░░ │
-│ ...                                         │
-└─────────────────────────────────────────────┘
-```
+Em `src/pages/app/Configuracoes.tsx`, no card **Preferências**:
+- Substituir o item estático "Tema escuro" por um item funcional ligado ao `useTheme()`:
+  - Título: **"Modo escuro"**, descrição: **"Use uma aparência escura para ambientes com pouca luz."**
+  - `<Switch checked={theme === "dark"} onCheckedChange={(v) => setTheme(v ? "dark" : "light")} />`
+- Para evitar o flash de hidratação típico do `next-themes`, usar um `mounted` flag (`useEffect` simples) e renderizar o switch só após montar (ou usar `defaultChecked` controlado).
 
-- Componente novo `CategoryMonthRow` (colapsável, usa `<Collapsible>` do projeto).
-- Mostra mini-badge "Limite: R$ X" + barra colorida (ok/alert/over) quando há orçamento.
-- Botão "Definir limite" inline em cada linha (pai ou filha).
-- Mês default = mês civil atual; usa `MonthSelector` reaproveitado (mesma UX do Extrato).
+### 2.5. Garantir legibilidade — pequenos ajustes nas páginas
 
-**Aba "Pendentes"** continua igual.
+A maioria do app já usa tokens semânticos (`bg-background`, `text-foreground`, `border-border`, `bg-card`, `bg-secondary/40`, etc.), então funciona automaticamente. Vamos auditar e corrigir apenas pontos onde **opacidades** ou **classes utilitárias diretas** podem comprometer o contraste no claro:
 
-### 5. Diálogo de orçamento (`Categorizacao.tsx`)
+- `src/pages/Landing.tsx`: o hero usa `bg-gradient-hero` + `bg-gradient-mesh opacity-60` — já fica adequado com a versão clara das variáveis. Sem mudança de markup.
+- `src/layouts/AppLayout.tsx`: header `bg-background/80 backdrop-blur` — funciona em ambos. Sem mudança.
+- `src/pages/app/Categorizacao.tsx`: a borda forte `border-primary` no card de categoria (introduzida nas últimas edições visuais) fica muito vibrante em modo claro — substituir por `border-border` (mantendo a aparência similar nos dois temas) **apenas se** quisermos suavizar; caso contrário, mantemos como pedido pelo usuário. **Decisão**: manter `border-primary` (preferência explícita anterior do usuário). Apenas confirmar visualmente no modo claro.
+- Toasts já reagem ao tema via `useTheme()` em `sonner.tsx` — sem mudanças.
 
-Adicionar:
-- Toggle visual `[Pai] [Filha]` quando o usuário cria um orçamento novo.
-- Se "Filha", aparece um Select extra "Categoria pai" (preenchido a partir do catálogo).
-- Validação ao salvar:
-  - **Filha:** se já existe orçamento do pai → `limite_filha + soma_outras_filhas ≤ limite_pai`. Se não existe orçamento do pai → permite, mas mostra dica "Defina também um teto para a categoria pai".
-  - **Pai:** se já existem filhas com orçamento → `novo_limite_pai ≥ soma_filhas`. Se violar, mostra erro: "O limite da categoria pai precisa ser ≥ R$ X (soma das filhas)".
-- Mensagens de erro inline (não toast) abaixo do input de valor.
+> Observação: nenhuma cor hard-coded (`text-white`, `bg-black`, `#hex`) será introduzida. Tudo via tokens semânticos.
 
-### 6. Componentes novos
+### 2.6. Sem flicker no carregamento
 
-- `src/components/categorias/CategoryMonthRow.tsx` — linha colapsável.
-- `src/components/categorias/CategoryMonthSummary.tsx` — header com total e contador.
-- `src/components/categorias/BudgetDialog.tsx` — extraído do `Categorizacao.tsx` para acomodar a nova lógica de validação hierárquica.
-
-### 7. Realtime / persistência
-
-`category_budgets` já está na publicação realtime — só refletir as novas colunas no select do contexto.
+`next-themes` injeta um pequeno script automaticamente em apps React puros (não-Next), mas como estamos em Vite/SPA, o `defaultTheme="light"` + `attribute="class"` cuida do caso comum. Como o padrão é **light** e o HTML não terá mais `class="dark"`, a primeira pintura sai correta em claro. Quando o usuário escolhe escuro, o `next-themes` aplica `class="dark"` no `<html>` antes da hidratação visual relevante.
 
 ---
 
-## ✅ Critérios de aceite
+## Arquivos afetados
 
-1. Página Categorias abre no mês atual, lista só categorias com gasto > 0, ordenadas por valor desc.
-2. Clicar numa categoria pai expande filhas com gasto > 0; meses sem gasto naquela filha não aparecem.
-3. Quando uma transação nova chega com categoria inédita no mês, ela aparece automaticamente (já garantido pelo realtime + agregação dinâmica).
-4. Posso definir orçamento por pai e por filha. Tentativa de criar filha cuja soma exceda o pai é bloqueada com mensagem clara.
-5. Tentativa de reduzir o pai abaixo da soma das filhas é bloqueada com mensagem clara, indicando o mínimo exigido.
-6. Navegação por mês funciona (últimos 12 meses) e o seletor mantém o estado ao trocar de aba.
+| Arquivo | Mudança |
+|---|---|
+| `src/pages/app/Categorizacao.tsx` | Remove aba Pendentes, Tabs, imports/estado não usados |
+| `src/components/AppSidebar.tsx` | Remove badge "pending" do item Categorias |
+| `src/index.css` | Adiciona paleta clara em `:root`; move dark completo para `.dark`; remove `@apply dark` |
+| `index.html` | Remove `class="dark"` do `<html>` |
+| `src/components/ThemeProvider.tsx` | **Novo**: wrapper do `next-themes` (default `light`) |
+| `src/App.tsx` | Envolve a árvore com `ThemeProvider` |
+| `src/pages/app/Configuracoes.tsx` | Switch funcional **Modo escuro** ligado ao `useTheme` |
 
----
-
-## 🚫 Fora de escopo
-
-- Reabrir a aba "Pendentes" — fica como está.
-- Não vou criar a categoria "Recorrentes" agora (preferência registrada anteriormente).
-- Não estou mudando o ciclo financeiro do usuário; a página Categorias usa **mês civil** (a regra de "ciclo de cartão" continua valendo só pra Faturas).
+Sem migrações de banco, sem mudanças no contexto Finance, sem novas dependências (next-themes já instalado).
