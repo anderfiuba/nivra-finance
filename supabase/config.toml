@@ -6,9 +6,6 @@ verify_jwt = true
 [functions.pluggy-list-items]
 verify_jwt = true
 
-[functions.pluggy-sync-item]
-verify_jwt = true
-
 [functions.pluggy-register-item]
 verify_jwt = true
 
