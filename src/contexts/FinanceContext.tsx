@@ -319,6 +319,11 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           .from("total_budget_settings")
           .select("id,monthly_limit,alert_threshold")
           .maybeSingle(),
+        supabase
+          .from("profiles")
+          .select("cycle_day")
+          .eq("id", user.id)
+          .maybeSingle(),
       ]);
 
       // Index pluggy_items por pluggy_item_id pra resolver logo/cor/sync.
