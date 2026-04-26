@@ -190,7 +190,7 @@ const Categorizacao = () => {
   ): string | null => {
     if (scope === "child") {
       if (!parentLabel) return "Escolha a categoria principal.";
-      if (!childLabel) return "Escolha (ou digite) o nome da subcategoria.";
+      if (!childLabel) return "Escolha a subcategoria.";
       const parentBudget = budgetByParent.get(parentLabel);
       // soma das outras filhas do mesmo pai (excluindo a edição atual)
       let siblingSum = 0;
