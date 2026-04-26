@@ -50,6 +50,7 @@ const Dashboard = () => {
     expensesByCategoryMonth,
     currentMonthLabel,
     patrimonyHistory,
+    patrimonyHistoryIncomplete,
     netWorth,
     accounts,
     bills,
@@ -183,6 +184,12 @@ const Dashboard = () => {
           </div>
           <span className="text-[10px] md:text-xs text-muted-foreground">Últimos 3 meses</span>
         </div>
+        {patrimonyHistoryIncomplete && patrimonySeries.length > 0 && (
+          <p className="text-[10px] md:text-xs text-muted-foreground -mt-2 mb-2">
+            Histórico parcial — algumas contas conectadas não expõem extrato completo, então o
+            início da série pode estar suavizado.
+          </p>
+        )}
         {patrimonySeries.length === 0 ? (
           <div className="h-[180px] md:h-[220px] flex items-center justify-center text-xs text-muted-foreground">
             Sem contas conectadas para calcular o histórico.
