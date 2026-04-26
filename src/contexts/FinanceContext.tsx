@@ -640,11 +640,24 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const setCycleDay = useCallback((day: number) => {
-    const safe = Math.max(1, Math.min(28, Math.floor(day)));
-    setCycleDayState(safe);
-    persistCycle(safe);
-  }, [persistCycle]);
+  const setCycleDay = useCallback(
+    (day: number) => {
+      const safe = Math.max(1, Math.min(28, Math.floor(day)));
+      setCycleDayState(safe);
+      persistCycle(safe);
+      // Persiste no profile do usuário para isolar entre dispositivos/sessões.
+      if (user) {
+        supabase
+          .from("profiles")
+          .update({ cycle_day: safe })
+          .eq("id", user.id)
+          .then(({ error }) => {
+            if (error) console.error("setCycleDay persist error", error);
+          });
+      }
+    },
+    [persistCycle, user],
+  );
 
   const patchTx = useCallback((id: string, patch: Partial<Transaction>) => {
     setTransactions((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
