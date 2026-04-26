@@ -68,6 +68,7 @@ const Categorizacao = () => {
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [showOthers, setShowOthers] = useState(false);
+  const [onlyWithSpending, setOnlyWithSpending] = useState(false);
 
   // dialog (somente categoria-pai)
   const [dlgOpen, setDlgOpen] = useState(false);
@@ -124,6 +125,17 @@ const Categorizacao = () => {
   const extraLabels = useMemo(
     () => allCatalogParents.filter((l) => !primaryLabels.includes(l)),
     [allCatalogParents, primaryLabels],
+  );
+
+  // Filtro "apenas com gastos no ciclo".
+  const hasSpending = (label: string) => (aggByParent.get(label)?.spent ?? 0) > 0;
+  const visiblePrimaryLabels = useMemo(
+    () => (onlyWithSpending ? primaryLabels.filter(hasSpending) : primaryLabels),
+    [primaryLabels, onlyWithSpending, aggByParent],
+  );
+  const visibleExtraLabels = useMemo(
+    () => (onlyWithSpending ? extraLabels.filter(hasSpending) : extraLabels),
+    [extraLabels, onlyWithSpending, aggByParent],
   );
 
   // ---------- dialog handlers ----------
@@ -392,36 +404,58 @@ const Categorizacao = () => {
 
         <Card className="bg-gradient-card border-border overflow-hidden">
           <div className="flex flex-col gap-2 md:gap-0 md:divide-y md:divide-border p-2 md:p-0">
-            {primaryLabels.map((label) => renderRow(label))}
+            {visiblePrimaryLabels.length > 0 ? (
+              visiblePrimaryLabels.map((label) => renderRow(label))
+            ) : (
+              <p className="text-xs text-muted-foreground text-center py-6">
+                Nenhuma categoria com gasto neste ciclo.
+              </p>
+            )}
           </div>
         </Card>
 
-        {/* Toggle: outras categorias do catálogo */}
-        {extraLabels.length > 0 && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3 px-1">
-              <Label
-                htmlFor="cat-show-others"
-                className="text-xs text-muted-foreground cursor-pointer select-none"
-              >
-                Mostrar outras categorias
-              </Label>
-              <Switch
-                id="cat-show-others"
-                checked={showOthers}
-                onCheckedChange={setShowOthers}
-              />
-            </div>
-
-            {showOthers && (
-              <Card className="bg-gradient-card border-border overflow-hidden">
-                <div className="flex flex-col gap-2 md:gap-0 md:divide-y md:divide-border p-2 md:p-0">
-                  {extraLabels.map((label) => renderRow(label))}
-                </div>
-              </Card>
-            )}
+        {/* Toggles de visualização (empilhados). */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3 px-1">
+            <Label
+              htmlFor="cat-only-with-spending"
+              className="text-xs text-muted-foreground cursor-pointer select-none"
+            >
+              Apenas com gastos no ciclo
+            </Label>
+            <Switch
+              id="cat-only-with-spending"
+              checked={onlyWithSpending}
+              onCheckedChange={setOnlyWithSpending}
+            />
           </div>
-        )}
+
+          {extraLabels.length > 0 && (
+            <>
+              <div className="flex items-center justify-between gap-3 px-1">
+                <Label
+                  htmlFor="cat-show-others"
+                  className="text-xs text-muted-foreground cursor-pointer select-none"
+                >
+                  Mostrar outras categorias
+                </Label>
+                <Switch
+                  id="cat-show-others"
+                  checked={showOthers}
+                  onCheckedChange={setShowOthers}
+                />
+              </div>
+
+              {showOthers && visibleExtraLabels.length > 0 && (
+                <Card className="bg-gradient-card border-border overflow-hidden">
+                  <div className="flex flex-col gap-2 md:gap-0 md:divide-y md:divide-border p-2 md:p-0">
+                    {visibleExtraLabels.map((label) => renderRow(label))}
+                  </div>
+                </Card>
+              )}
+            </>
+          )}
+        </div>
 
         {monthBucket && monthly.items.length === 0 && (
           <p className="text-xs text-muted-foreground text-center">
