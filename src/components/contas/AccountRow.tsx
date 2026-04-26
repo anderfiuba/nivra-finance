@@ -1,10 +1,24 @@
-import { CreditCard, Wallet } from "lucide-react";
+import { AlertTriangle, CreditCard, Wallet } from "lucide-react";
 import { formatBRL, formatRelativeTime } from "@/lib/format";
 import type { FinanceAccount } from "@/contexts/FinanceContext";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface Props {
   account: FinanceAccount;
   variant: "credit" | "bank";
+  /**
+   * Quando true: a conta está com saldo zerado mas tem movimento recente,
+   * sinal típico de conector NÃO-Open Finance que não expõe saldo investido
+   * (ex: Mercado Pago carteira com Rendimento à parte). Renderiza um aviso
+   * sutil para deixar claro ao usuário que o valor exibido pode não ser o
+   * total real disponível na instituição.
+   */
+  balanceLikelyIncomplete?: boolean;
 }
 
 /**
@@ -12,7 +26,7 @@ interface Props {
  * - Mobile: stack vertical (logo+texto em cima, valor embaixo).
  * - Desktop: 3 colunas (logo, info, valor à direita).
  */
-export function AccountRow({ account, variant }: Props) {
+export function AccountRow({ account, variant, balanceLikelyIncomplete }: Props) {
   const isCredit = variant === "credit";
   const Icon = isCredit ? CreditCard : Wallet;
 
@@ -44,9 +58,29 @@ export function AccountRow({ account, variant }: Props) {
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-foreground truncate">
-            {account.name}
-          </p>
+          <div className="flex items-center gap-1.5">
+            <p className="text-sm font-semibold text-foreground truncate">
+              {account.name}
+            </p>
+            {balanceLikelyIncomplete && (
+              <TooltipProvider delayDuration={150}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex items-center text-warning shrink-0" aria-label="Saldo possivelmente incompleto">
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-[260px] text-xs leading-relaxed">
+                    Esta instituição entregou saldo <strong>R$&nbsp;0</strong>, mas detectamos
+                    movimento recente. Conectores que não usam Open Finance regulado
+                    (ex: Mercado Pago) costumam não expor saldo investido. O valor real
+                    disponível pode estar em uma carteira de rendimento não acessível
+                    pela conexão.
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+          </div>
           <p className="text-xs text-muted-foreground truncate">
             {account.connectorName ?? account.subtype ?? account.type ?? "Conta"}
           </p>
