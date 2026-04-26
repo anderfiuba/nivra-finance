@@ -443,11 +443,15 @@ Deno.serve(async (req) => {
     }
 
     // 4. Atualiza status do item
+    const statusDetail = (itemData as { statusDetail?: Record<string, unknown> | null })?.statusDetail ?? null;
+    const lastSyncWarning = buildSyncWarning(statusDetail, accounts);
     await adminClient
       .from("pluggy_items")
       .update({
         status: itemData.status ?? null,
         execution_status: itemData.executionStatus ?? null,
+        status_detail: statusDetail,
+        last_sync_warning: lastSyncWarning,
         last_synced_at: new Date().toISOString(),
       })
       .eq("pluggy_item_id", body.itemId)
