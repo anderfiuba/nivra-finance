@@ -106,7 +106,7 @@ export function TotalBudgetCard({ spent }: Props) {
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-sm font-medium text-foreground">
-                Definir limite total do mês
+                Definir limite total do ciclo financeiro
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
                 Um teto geral para todos os seus gastos.
@@ -135,7 +135,7 @@ export function TotalBudgetCard({ spent }: Props) {
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-xs uppercase tracking-wider text-muted-foreground">
-              Limite total do mês
+              Limite total do ciclo financeiro
             </p>
             <p className="text-2xl font-semibold tabular-nums text-foreground mt-0.5">
               {formatBRL(totalBudget.monthlyLimit)}
