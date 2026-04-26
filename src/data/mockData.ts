@@ -34,6 +34,14 @@ export interface Transaction {
   totalInstallments?: number | null;
   /** Últimos 4 dígitos do cartão / id curto da conta para exibir na linha. */
   accountTag?: string | null;
+  /** Rótulo PT-BR original da Pluggy (categoria filha, antes de resolver pra pai). */
+  categoryPluggy?: string | null;
+  /** ID Pluggy da categoria efetiva (já resolvida para o pai quando aplicável). */
+  categoryId?: string | null;
+  /** ID Pluggy da categoria pai (quando resolvido). */
+  categoryParentId?: string | null;
+  /** Rótulo PT-BR da categoria filha (quando a transação tinha uma sub-categoria). */
+  categoryChildLabel?: string | null;
 }
 
 export const CATEGORIES = [

@@ -85,6 +85,10 @@ export interface CategoryBudget {
   categoryLabel: string;
   monthlyLimit: number;
   alertThreshold: number;
+  /** 'parent' = orçamento de categoria principal; 'child' = subcategoria. */
+  scope: "parent" | "child";
+  /** Nome da categoria pai quando scope='child'. */
+  parentCategoryLabel: string | null;
 }
 
 export interface CardCycleSetting {
@@ -114,6 +118,17 @@ export interface BudgetProgress {
   ratio: number; // spent / limit
   status: BudgetStatus;
   budgetId: string;
+  scope: "parent" | "child";
+  parentCategoryLabel: string | null;
+}
+
+/** Agregação mensal hierárquica de despesas (pai → filhas). */
+export interface CategoryMonthlyAgg {
+  parentLabel: string;
+  parentId: string | null;
+  spent: number;
+  pctOfTotal: number;
+  children: { label: string; spent: number; pctOfParent: number }[];
 }
 
 interface FinanceContextValue {
@@ -152,8 +167,19 @@ interface FinanceContextValue {
   categoryBudgets: CategoryBudget[];
   budgetProgress: BudgetProgress[];
   budgetAlerts: number;
-  upsertBudget: (label: string, monthlyLimit: number, alertThreshold: number) => Promise<void>;
+  upsertBudget: (
+    label: string,
+    monthlyLimit: number,
+    alertThreshold: number,
+    scope?: "parent" | "child",
+    parentCategoryLabel?: string | null,
+  ) => Promise<void>;
   deleteBudget: (id: string) => Promise<void>;
+  /** Agrega gastos de um mês civil (YYYY-MM) por categoria pai → filhas. */
+  monthlyCategoryAggregates: (monthKey: string) => {
+    total: number;
+    items: CategoryMonthlyAgg[];
+  };
   // Configuração de ciclos por cartão (manual)
   cardCycleSettings: Record<string, CardCycleSetting>;
   upsertCardCycle: (pluggyAccountId: string, closingDay: number, dueDay: number) => Promise<void>;
@@ -251,7 +277,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           .order("due_date", { ascending: false }),
         supabase
           .from("category_budgets")
-          .select("id,category_label,monthly_limit,alert_threshold")
+          .select("id,category_label,monthly_limit,alert_threshold,scope,parent_category_label")
           .order("category_label", { ascending: true }),
         supabase
           .from("pluggy_items")
@@ -394,25 +420,34 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         //   1. Override manual do usuário (`category`) tem prioridade — UI só oferece pais.
         //   2. Senão, resolve `category_id`/`category_pluggy` no catálogo e sobe para o pai.
         //   3. Se o nó já é pai (parent_id null), retorna ele mesmo.
-        const resolveToParent = (
-          node: { id: string; description: string; descriptionTranslated: string | null; parentId: string | null } | null,
-        ): string => {
-          if (!node) return "";
-          const target = node.parentId ? (catById.get(node.parentId) ?? node) : node;
-          return target.descriptionTranslated || target.description;
+        type CatNode = {
+          id: string;
+          description: string;
+          descriptionTranslated: string | null;
+          parentId: string | null;
+          parentDescription: string | null;
         };
+        const labelOf = (n: CatNode | null): string => (n ? (n.descriptionTranslated || n.description) : "");
+        // Resolve o nó original (categoria filha quando aplicável).
+        const originalNode: CatNode | null = (t.category_id && catById.get(t.category_id))
+          || (t.category_pluggy && catByDescription.get(t.category_pluggy))
+          || null;
+        const parentNode: CatNode | null = originalNode
+          ? (originalNode.parentId ? (catById.get(originalNode.parentId) ?? originalNode) : originalNode)
+          : null;
+        const isOriginalAlreadyParent = !!originalNode && originalNode.parentId === null;
+
         let effectiveCategory = "";
         if (t.category && t.category.trim().length > 0) {
           effectiveCategory = t.category;
         } else {
-          const node = (t.category_id && catById.get(t.category_id))
-            || (t.category_pluggy && catByDescription.get(t.category_pluggy))
-            || null;
-          effectiveCategory = resolveToParent(node);
+          effectiveCategory = labelOf(parentNode);
           if (!effectiveCategory && t.category_pluggy) {
             effectiveCategory = t.category_pluggy;
           }
         }
+
+        const childLabel = !isOriginalAlreadyParent ? labelOf(originalNode) : null;
 
         const pending: PendingType | undefined = effectiveCategory === ""
           ? "sem_categoria"
@@ -437,6 +472,9 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           // Rótulo nativo da Pluggy (e.g. "Credit card payment") — usado pela
           // inferência de pagamento de fatura.
           categoryPluggy: t.category_pluggy ?? null,
+          categoryId: parentNode?.id ?? originalNode?.id ?? null,
+          categoryParentId: parentNode?.id ?? null,
+          categoryChildLabel: childLabel,
           // Metadados auxiliares (não-padrão do nosso Transaction, mas React aceita)
           ...(isInternational
             ? {
@@ -476,6 +514,8 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           categoryLabel: b.category_label,
           monthlyLimit: Number(b.monthly_limit),
           alertThreshold: Number(b.alert_threshold),
+          scope: (b.scope === "child" ? "child" : "parent") as "parent" | "child",
+          parentCategoryLabel: b.parent_category_label ?? null,
         })),
       );
 
@@ -661,15 +701,20 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     [previousCycleTransactions],
   );
 
+  // Filtro comum: ignora transferências e pagamento de cartão (não são despesa real).
+  const isExpenseCategory = (cat: string) => {
+    if (!cat) return false;
+    if (/^Transfer/i.test(cat) || /transfer/i.test(cat)) return false;
+    if (/Credit card payment/i.test(cat) || /cart[aã]o de cr[eé]dito/i.test(cat)) return false;
+    return true;
+  };
+
   const expensesByCategoryCycle = useMemo(() => {
     const map = new Map<string, number>();
     for (const t of cycleTransactions) {
       if (t.type !== "saida") continue;
       const cat = t.category || "Outros";
-      // Não computa transferências/pagamento de cartão como despesa real.
-      if (/^Transfer/i.test(cat) || /transfer/i.test(cat) || /Credit card payment/i.test(cat) || /cart[aã]o de cr[eé]dito/i.test(cat)) {
-        continue;
-      }
+      if (!isExpenseCategory(cat)) continue;
       map.set(cat, (map.get(cat) ?? 0) + Math.abs(t.value));
     }
     return Array.from(map.entries())
@@ -681,15 +726,76 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       .sort((a, b) => b.value - a.value);
   }, [cycleTransactions]);
 
-  // Progresso de orçamentos: como toda transação já é resolvida para a
-  // categoria PAI no `effectiveCategory`, basta cruzar pelo rótulo direto.
+  /**
+   * Agrega gastos do mês civil (chave YYYY-MM) por categoria pai → filhas.
+   * Resultado contém apenas categorias com gasto > 0 (sob demanda).
+   */
+  const monthlyCategoryAggregates = useCallback(
+    (monthKey: string) => {
+      // mês civil
+      const m = /^(\d{4})-(\d{2})$/.exec(monthKey);
+      if (!m) return { total: 0, items: [] };
+      const year = Number(m[1]);
+      const month = Number(m[2]) - 1;
+      const start = new Date(year, month, 1, 0, 0, 0, 0).getTime();
+      const end = new Date(year, month + 1, 0, 23, 59, 59, 999).getTime();
+
+      // map: parentLabel -> { total, children: Map(childLabel -> spent) }
+      const parents = new Map<string, { spent: number; children: Map<string, number> }>();
+      let total = 0;
+      for (const t of transactions) {
+        if (t.type !== "saida") continue;
+        const ts = new Date(t.date).getTime();
+        if (Number.isNaN(ts) || ts < start || ts > end) continue;
+        const parentLabel = (t.category || "").trim() || "Outros";
+        if (!isExpenseCategory(parentLabel)) continue;
+        const childLabel = (t.categoryChildLabel || "").trim() || `Outros · ${parentLabel}`;
+        const entry = parents.get(parentLabel) ?? { spent: 0, children: new Map<string, number>() };
+        const v = Math.abs(t.value);
+        entry.spent += v;
+        entry.children.set(childLabel, (entry.children.get(childLabel) ?? 0) + v);
+        parents.set(parentLabel, entry);
+        total += v;
+      }
+
+      const items: CategoryMonthlyAgg[] = Array.from(parents.entries())
+        .map(([parentLabel, data]) => ({
+          parentLabel,
+          parentId: null,
+          spent: data.spent,
+          pctOfTotal: total > 0 ? data.spent / total : 0,
+          children: Array.from(data.children.entries())
+            .map(([label, spent]) => ({
+              label,
+              spent,
+              pctOfParent: data.spent > 0 ? spent / data.spent : 0,
+            }))
+            .sort((a, b) => b.spent - a.spent),
+        }))
+        .sort((a, b) => b.spent - a.spent);
+
+      return { total, items };
+    },
+    [transactions],
+  );
+
+  // Progresso de orçamentos — calcula no MÊS CIVIL CORRENTE, suportando pai e filha.
   const budgetProgress = useMemo<BudgetProgress[]>(() => {
-    const spentMap = new Map<string, number>();
-    for (const e of expensesByCategoryCycle) {
-      spentMap.set(e.name, (spentMap.get(e.name) ?? 0) + e.value);
+    const now = new Date();
+    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const agg = monthlyCategoryAggregates(monthKey);
+    const parentSpent = new Map<string, number>();
+    const childSpent = new Map<string, number>(); // chave: `${parent}::${child}`
+    for (const item of agg.items) {
+      parentSpent.set(item.parentLabel, item.spent);
+      for (const c of item.children) {
+        childSpent.set(`${item.parentLabel}::${c.label}`, c.spent);
+      }
     }
     return categoryBudgets.map((b) => {
-      const spent = spentMap.get(b.categoryLabel) ?? 0;
+      const spent = b.scope === "child" && b.parentCategoryLabel
+        ? (childSpent.get(`${b.parentCategoryLabel}::${b.categoryLabel}`) ?? 0)
+        : (parentSpent.get(b.categoryLabel) ?? 0);
       const ratio = b.monthlyLimit > 0 ? spent / b.monthlyLimit : 0;
       let status: BudgetStatus = "ok";
       if (ratio >= 1) status = "over";
@@ -702,9 +808,11 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         ratio,
         status,
         budgetId: b.id,
+        scope: b.scope,
+        parentCategoryLabel: b.parentCategoryLabel,
       };
     });
-  }, [categoryBudgets, expensesByCategoryCycle]);
+  }, [categoryBudgets, monthlyCategoryAggregates]);
 
   const budgetAlerts = useMemo(
     () => budgetProgress.filter((b) => b.status !== "ok").length,
@@ -727,7 +835,13 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   }, [budgetProgress]);
 
   const upsertBudget = useCallback(
-    async (label: string, monthlyLimit: number, alertThreshold: number) => {
+    async (
+      label: string,
+      monthlyLimit: number,
+      alertThreshold: number,
+      scope: "parent" | "child" = "parent",
+      parentCategoryLabel: string | null = null,
+    ) => {
       if (!user) return;
       const { error } = await supabase
         .from("category_budgets")
@@ -737,6 +851,8 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
             category_label: label,
             monthly_limit: monthlyLimit,
             alert_threshold: alertThreshold,
+            scope,
+            parent_category_label: scope === "child" ? parentCategoryLabel : null,
           },
           { onConflict: "user_id,category_label" },
         );
@@ -833,6 +949,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     budgetAlerts,
     upsertBudget,
     deleteBudget,
+    monthlyCategoryAggregates,
     cardCycleSettings,
     upsertCardCycle,
   };
