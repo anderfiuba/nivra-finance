@@ -54,6 +54,7 @@ const Disponivel = () => {
   } | null>(null);
   const [showOthers, setShowOthers] = useState(false);
   const [onlyWithSpending, setOnlyWithSpending] = useState(false);
+  const [onlyWithLimit, setOnlyWithLimit] = useState(false);
 
   const openSheetForBudget = (b: (typeof budgetProgress)[number]) => {
     setSheetSelection({
@@ -154,6 +155,10 @@ const Disponivel = () => {
     return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
   }, [allCatalogParents, spentByParent]);
 
+  // Helper: aplica o filtro "apenas com limite definido" sobre uma lista de labels.
+  const applyLimitFilter = (labels: string[]) =>
+    onlyWithLimit ? labels.filter((l) => parentBudgetByLabel.has(l)) : labels;
+
   return (
     <div
       className="px-4 pt-4 pb-8 md:p-8 max-w-2xl mx-auto space-y-5"
@@ -183,6 +188,19 @@ const Disponivel = () => {
 
         {/* Toggles de visualização — sempre acima da lista. */}
         <div className="space-y-2">
+          <div className="flex items-center justify-between gap-3 px-1">
+            <Label
+              htmlFor="only-with-limit"
+              className="text-xs text-muted-foreground cursor-pointer select-none"
+            >
+              Apenas com limite definido
+            </Label>
+            <Switch
+              id="only-with-limit"
+              checked={onlyWithLimit}
+              onCheckedChange={setOnlyWithLimit}
+            />
+          </div>
           <div className="flex items-center justify-between gap-3 px-1">
             <Label
               htmlFor="only-with-spending"
@@ -216,17 +234,27 @@ const Disponivel = () => {
         {/* Lista de categorias. */}
         <div className="space-y-2">
           {onlyWithSpending ? (
-            labelsWithSpending.length > 0 ? (
-              labelsWithSpending.map((label) => renderCategoryRow(label))
+            applyLimitFilter(labelsWithSpending).length > 0 ? (
+              applyLimitFilter(labelsWithSpending).map((label) => renderCategoryRow(label))
             ) : (
               <p className="text-xs text-muted-foreground text-center py-4">
-                Nenhuma categoria com gasto neste ciclo.
+                {onlyWithLimit
+                  ? "Nenhuma categoria com gasto e limite definido neste ciclo."
+                  : "Nenhuma categoria com gasto neste ciclo."}
               </p>
             )
           ) : (
             <>
-              {defaultLabels.map((label) => renderCategoryRow(label))}
-              {showOthers && extraLabels.map((label) => renderCategoryRow(label))}
+              {applyLimitFilter(defaultLabels).map((label) => renderCategoryRow(label))}
+              {showOthers &&
+                applyLimitFilter(extraLabels).map((label) => renderCategoryRow(label))}
+              {onlyWithLimit &&
+                applyLimitFilter(defaultLabels).length === 0 &&
+                (!showOthers || applyLimitFilter(extraLabels).length === 0) && (
+                  <p className="text-xs text-muted-foreground text-center py-4">
+                    Nenhuma categoria com limite definido.
+                  </p>
+                )}
             </>
           )}
         </div>
