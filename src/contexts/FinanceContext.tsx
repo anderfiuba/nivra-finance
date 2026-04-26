@@ -1213,6 +1213,8 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     expensesByCategoryMonth,
     currentMonthLabel,
     patrimonyHistory,
+    patrimonyHistoryIncomplete,
+    patrimonyExcludedAccounts,
     bills,
     categoryBudgets,
     budgetProgress,
