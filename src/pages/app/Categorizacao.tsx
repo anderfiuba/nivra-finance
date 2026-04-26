@@ -428,10 +428,10 @@ const Categorizacao = () => {
       {/* Cabeçalho */}
       <div>
         <h1 className="text-2xl md:text-3xl font-bold text-foreground tracking-tight">
-          Categorias
+          Ciclo Financeiro
         </h1>
         <p className="mt-1 text-xs md:text-sm text-muted-foreground">
-          Centro de gestão de limites do seu ciclo financeiro.
+          Centro de gestão de limites e categorias do seu ciclo financeiro.
         </p>
       </div>
 

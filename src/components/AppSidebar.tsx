@@ -20,7 +20,7 @@ const items = [
   { title: "Contas", url: "/app/contas", icon: Wallet },
   { title: "Extrato Unificado", url: "/app/extrato", icon: FileText },
   { title: "Faturas", url: "/app/faturas", icon: CreditCard },
-  { title: "Categorias", url: "/app/categorizacao", icon: Tags },
+  { title: "Ciclo Financeiro", url: "/app/categorizacao", icon: Tags },
   { title: "Conexões Open Finance", url: "/app/conexoes", icon: Plug },
   { title: "Configurações", url: "/app/configuracoes", icon: Settings },
   { title: "Planos", url: "/app/planos", icon: Crown },
