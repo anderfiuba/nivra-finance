@@ -6,7 +6,6 @@ import { Progress } from "@/components/ui/progress";
 import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   Dialog,
@@ -19,11 +18,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertTriangle,
-  ArrowDownRight,
-  ArrowUpRight,
-  CheckCircle2,
   ChevronRight,
-  HelpCircle,
   PencilLine,
   Plus,
   Tags,
@@ -31,8 +26,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { useFinance } from "@/contexts/FinanceContext";
-import { formatBRL, formatDate } from "@/lib/format";
-import { Transaction } from "@/data/mockData";
+import { formatBRL } from "@/lib/format";
 import { lastNMonths, currentMonthBucket } from "@/lib/months";
 import { MonthSelector } from "@/components/extrato/MonthSelector";
 import { toast } from "sonner";
@@ -42,10 +36,7 @@ type BudgetScope = "parent" | "child";
 
 const Categorizacao = () => {
   const {
-    pendingList,
-    pendingByType,
     categories,
-    updateCategory,
     categoryBudgets,
     monthlyCategoryAggregates,
     upsertBudget,
@@ -56,7 +47,6 @@ const Categorizacao = () => {
   const months = useMemo(() => lastNMonths(12), []);
   const [monthKey, setMonthKey] = useState<string>(currentMonthBucket().key);
 
-  const [draftCategory, setDraftCategory] = useState<Record<string, string>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   // dialog
@@ -131,25 +121,6 @@ const Categorizacao = () => {
     }
     return m;
   }, [categoryBudgets]);
-
-  // ---------- pendentes ----------
-  const visible = pendingList.filter((t) => t.pendingType === "sem_categoria");
-  const semCategoriaCount = pendingByType.sem_categoria;
-
-  const handleSaveCategory = (t: Transaction) => {
-    const value = draftCategory[t.id];
-    if (!value) {
-      toast.error("Selecione uma categoria antes de salvar.");
-      return;
-    }
-    updateCategory(t.id, value);
-    setDraftCategory((prev) => {
-      const next = { ...prev };
-      delete next[t.id];
-      return next;
-    });
-    toast.success("Categoria atualizada");
-  };
 
   // ---------- abrir/fechar dialog ----------
   const openNewBudget = (scope: BudgetScope, parentLabel: string, childLabel?: string) => {
