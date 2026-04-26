@@ -120,11 +120,14 @@ const Disponivel = () => {
       style={{ paddingBottom: "calc(2rem + env(safe-area-inset-bottom))" }}
     >
       {/* Header minúsculo */}
-      <div className="flex items-baseline justify-between">
-        <p className="text-xs uppercase tracking-wider text-muted-foreground">
-          Ciclo {currentCycleLabel}
-        </p>
-        <p className="text-xs text-muted-foreground tabular-nums">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <p className="text-xs uppercase tracking-wider text-muted-foreground truncate">
+            Ciclo {currentCycleLabel}
+          </p>
+          <CycleDaySettingsButton className="h-7 w-7 shrink-0" />
+        </div>
+        <p className="text-xs text-muted-foreground tabular-nums shrink-0">
           dia {elapsedDays} de {totalCycleDays}
         </p>
       </div>
