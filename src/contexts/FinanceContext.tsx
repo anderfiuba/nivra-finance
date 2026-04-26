@@ -1232,6 +1232,8 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     upsertTotalBudget,
     deleteTotalBudget,
     monthlyCategoryAggregates,
+    cycleCategoryAggregates,
+    lastCycles,
     cardCycleSettings,
     upsertCardCycle,
   };
