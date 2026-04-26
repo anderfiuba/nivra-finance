@@ -23,7 +23,7 @@ export interface BillLike {
 }
 
 export interface TxLike {
-  pluggyAccountId: string;
+  pluggyAccountId?: string | null;
   date: string;
   description: string;
   /** Valor sempre positivo (no nosso modelo `Transaction.value`). */
