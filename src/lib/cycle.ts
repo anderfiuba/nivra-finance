@@ -78,10 +78,6 @@ export interface CycleBucket {
   end: Date;
 }
 
-function pad(n: number): string {
-  return n.toString().padStart(2, "0");
-}
-
 function bucketFromRange(range: CycleRange): CycleBucket {
   const key = `${range.end.getFullYear()}-${pad(range.end.getMonth() + 1)}-${pad(range.end.getDate())}`;
   const s = `${pad(range.start.getDate())}/${MONTHS_PT[range.start.getMonth()]}`;
