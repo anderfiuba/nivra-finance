@@ -1,5 +1,6 @@
 import { corsHeaders } from "../_shared/cors.ts";
 import { pluggyFetch } from "../_shared/pluggy.ts";
+import { errorResponse } from "../_shared/errors.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 // Sincroniza accounts + transactions + bills + categorias de um item Pluggy.
@@ -15,10 +16,17 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 //     category_pluggy. O campo `category` permanece reservado para o override
 //     manual feito pelo usuário.
 //
-// Segurança:
-//   1. Exige JWT (verify_jwt=true).
-//   2. Confirma posse do item via RLS antes de qualquer fetch na Pluggy.
-//   3. Faz upsert via service role SEMPRE marcando user_id = auth.uid().
+// Segurança (HARDENED — pós-auditoria):
+//   1. Dois caminhos mutuamente exclusivos de autenticação:
+//      a) Caller cron: header `X-Cron-Secret` = CRON_SHARED_SECRET (Vault).
+//         Não exige JWT. Resolve user_id do item via service role.
+//      b) Caller usuário: JWT válido. Posse do item via RLS.
+//      JWT inválido OU secret errado → 401 imediato. ELIMINADO o bypass
+//      anterior `source: "cron"` no body.
+//   2. NUNCA persistimos SUPABASE_SERVICE_ROLE_KEY no banco. Cron usa
+//      shared secret dedicado e rotacionável.
+//   3. Erros internos só em console.error; cliente recebe códigos curtos
+//      via _shared/errors.ts.
 
 interface PluggyAccount {
   id: string;
