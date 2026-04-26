@@ -204,6 +204,16 @@ interface FinanceContextValue {
     total: number;
     items: CategoryMonthlyAgg[];
   };
+  /**
+   * Agrega gastos do ciclo financeiro do usuário identificado pela data final
+   * do ciclo (YYYY-MM-DD do `end`). Usa o mesmo cycleDay configurado.
+   */
+  cycleCategoryAggregates: (cycleEndKey: string) => {
+    total: number;
+    items: CategoryMonthlyAgg[];
+  };
+  /** Lista os últimos N ciclos do usuário (mais recente primeiro), incluindo o atual. */
+  lastCycles: (n: number) => CycleBucket[];
   // Configuração de ciclos por cartão (manual)
   cardCycleSettings: Record<string, CardCycleSetting>;
   upsertCardCycle: (pluggyAccountId: string, closingDay: number, dueDay: number) => Promise<void>;
