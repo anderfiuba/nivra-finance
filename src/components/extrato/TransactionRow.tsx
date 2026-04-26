@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowDownRight, ArrowUpRight, ChevronDown } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, ChevronDown, Building2 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { formatBRL } from "@/lib/format";
@@ -15,6 +15,8 @@ interface TransactionRowProps {
   tx: Transaction;
   parentCategories: ParentCategoryOption[];
   onChangeCategory: (id: string, label: string) => void;
+  /** URL do logo do banco (connector). Quando ausente, mostra fallback. */
+  accountLogoUrl?: string | null;
 }
 
 const WEEKDAY_TIME = (iso: string) => {
@@ -43,12 +45,21 @@ const FULL_DATE = (iso: string) => {
  *   conta completa, status, parcela, valor original).
  * - Desktop: linha tradicional com select de categoria visível.
  */
-export function TransactionRow({ tx, parentCategories, onChangeCategory }: TransactionRowProps) {
+export function TransactionRow({
+  tx,
+  parentCategories,
+  onChangeCategory,
+  accountLogoUrl,
+}: TransactionRowProps) {
   const [open, setOpen] = useState(false);
   const isEntrada = tx.type === "entrada";
   const sign = isEntrada ? "+" : "−";
   const valueColor = isEntrada ? "text-success" : "text-destructive";
-  const iconBg = isEntrada ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive";
+  // Anel sutil colorido por tipo (entrada/saída) ao redor do logo do banco —
+  // mantém a leitura rápida sem perder a identificação da instituição.
+  const ringClass = isEntrada
+    ? "ring-1 ring-success/40"
+    : "ring-1 ring-destructive/30";
 
   const categoryLabel = tx.category || "Sem categoria";
   const accountTag = tx.accountTag || tx.operationType || null;
@@ -56,6 +67,30 @@ export function TransactionRow({ tx, parentCategories, onChangeCategory }: Trans
     tx.installmentNumber && tx.totalInstallments && tx.totalInstallments > 1
       ? `${tx.installmentNumber}/${tx.totalInstallments}`
       : null;
+
+  /** Avatar circular com o logo do banco (ou fallback). */
+  const BankAvatar = ({ size = 40 }: { size?: number }) => (
+    <div
+      className={cn(
+        "rounded-lg bg-secondary/50 border border-border/60 flex items-center justify-center shrink-0 overflow-hidden",
+        ringClass,
+      )}
+      style={{ height: size, width: size }}
+      aria-label={tx.account}
+    >
+      {accountLogoUrl ? (
+        <img
+          src={accountLogoUrl}
+          alt=""
+          aria-hidden="true"
+          loading="lazy"
+          className="h-full w-full object-contain"
+        />
+      ) : (
+        <Building2 className="h-4 w-4 text-muted-foreground" />
+      )}
+    </div>
+  );
 
   return (
     <div className="md:contents">
@@ -66,9 +101,7 @@ export function TransactionRow({ tx, parentCategories, onChangeCategory }: Trans
         className="md:hidden w-full text-left flex items-center gap-3 p-3 hover:bg-secondary/30 transition-smooth"
         aria-expanded={open}
       >
-        <div className={cn("h-10 w-10 rounded-lg flex items-center justify-center shrink-0", iconBg)}>
-          {isEntrada ? <ArrowUpRight className="h-4 w-4" /> : <ArrowDownRight className="h-4 w-4" />}
-        </div>
+        <BankAvatar size={40} />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-foreground truncate">{tx.description}</p>
           <p className="text-xs text-muted-foreground truncate mt-0.5">
@@ -153,9 +186,7 @@ export function TransactionRow({ tx, parentCategories, onChangeCategory }: Trans
 
       {/* Desktop (≥ md): layout tabular */}
       <div className="hidden md:flex items-center gap-4 p-4 hover:bg-secondary/30 transition-smooth">
-        <div className={cn("h-10 w-10 rounded-lg flex items-center justify-center shrink-0", iconBg)}>
-          {isEntrada ? <ArrowUpRight className="h-4 w-4" /> : <ArrowDownRight className="h-4 w-4" />}
-        </div>
+        <BankAvatar size={40} />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-foreground truncate">{tx.description}</p>
           <div className="flex items-center gap-2 mt-1.5">
