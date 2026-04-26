@@ -32,6 +32,36 @@ export type Database = {
         }
         Relationships: []
       }
+      audit_log: {
+        Row: {
+          created_at: string
+          event_details: Json | null
+          event_type: string
+          id: string
+          ip_address: unknown
+          user_agent: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_details?: Json | null
+          event_type: string
+          id?: string
+          ip_address?: unknown
+          user_agent?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          event_details?: Json | null
+          event_type?: string
+          id?: string
+          ip_address?: unknown
+          user_agent?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       card_cycle_settings: {
         Row: {
           closing_day: number | null
@@ -397,6 +427,7 @@ export type Database = {
       }
       profiles: {
         Row: {
+          consent_accepted_at: string | null
           created_at: string
           cycle_day: number
           full_name: string | null
@@ -404,6 +435,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          consent_accepted_at?: string | null
           created_at?: string
           cycle_day?: number
           full_name?: string | null
@@ -411,6 +443,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          consent_accepted_at?: string | null
           created_at?: string
           cycle_day?: number
           full_name?: string | null
