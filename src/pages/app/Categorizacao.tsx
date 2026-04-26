@@ -297,7 +297,7 @@ const Categorizacao = () => {
                 </p>
               </div>
             ) : (
-              <div className="divide-y divide-border">
+              <div className="flex flex-col gap-2 md:gap-0 md:divide-y md:divide-border p-2 md:p-0">
                 {monthly.items.map((item) => {
                   const isOpen = !!expanded[item.parentLabel];
                   const parentBudget = budgetByParent.get(item.parentLabel);
