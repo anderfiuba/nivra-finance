@@ -570,6 +570,17 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           : null,
       );
 
+      // Carrega cycle_day do profile do usuário (fonte de verdade — isolado por usuário).
+      if (profileData && typeof profileData.cycle_day === "number") {
+        const day = Math.max(1, Math.min(28, Math.floor(profileData.cycle_day)));
+        setCycleDayState(day);
+        try {
+          window.localStorage.setItem(STORAGE_CYCLE, String(day));
+        } catch {
+          /* noop */
+        }
+      }
+
       const cycleMap: Record<string, CardCycleSetting> = {};
       for (const c of (cycleData ?? [])) {
         cycleMap[c.pluggy_account_id] = {
