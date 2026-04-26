@@ -80,6 +80,42 @@ const Categorizacao = () => {
       .sort((a, b) => a.localeCompare(b));
   }, [categories]);
 
+  // Mapa: rótulo da categoria pai → lista de rótulos de subcategorias (filhas) do catálogo Pluggy.
+  // Usado para popular o Select de subcategoria no diálogo de orçamento, evitando erros de digitação.
+  const childLabelsByParentLabel = useMemo(() => {
+    const parentIdToLabel = new Map<string, string>();
+    for (const c of categories) {
+      if (c.parentId === null) {
+        parentIdToLabel.set(c.id, c.descriptionTranslated ?? c.description);
+      }
+    }
+    const map = new Map<string, string[]>();
+    for (const c of categories) {
+      if (!c.parentId) continue;
+      const parentLabel = parentIdToLabel.get(c.parentId);
+      if (!parentLabel) continue;
+      const childLabel = c.descriptionTranslated ?? c.description;
+      const arr = map.get(parentLabel) ?? [];
+      arr.push(childLabel);
+      map.set(parentLabel, arr);
+    }
+    for (const [k, arr] of map) {
+      map.set(k, Array.from(new Set(arr)).sort((a, b) => a.localeCompare(b)));
+    }
+    return map;
+  }, [categories]);
+
+  // Subcategorias disponíveis para o pai selecionado no diálogo. Inclui também quaisquer
+  // rótulos de filhas que apareceram nas transações do mês mas não estão no catálogo.
+  const dlgChildOptions = useMemo(() => {
+    if (!dlgParentLabel) return [] as string[];
+    const fromCatalog = childLabelsByParentLabel.get(dlgParentLabel) ?? [];
+    const fromMonth = (monthly.items.find((i) => i.parentLabel === dlgParentLabel)?.children ?? []).map(
+      (c) => c.label,
+    );
+    return Array.from(new Set([...fromCatalog, ...fromMonth])).sort((a, b) => a.localeCompare(b));
+  }, [childLabelsByParentLabel, monthly.items, dlgParentLabel]);
+
   // Mapas auxiliares para encontrar orçamento por (parent | parent::child)
   const budgetByParent = useMemo(() => {
     const m = new Map<string, typeof categoryBudgets[number]>();
@@ -154,7 +190,7 @@ const Categorizacao = () => {
   ): string | null => {
     if (scope === "child") {
       if (!parentLabel) return "Escolha a categoria principal.";
-      if (!childLabel) return "Escolha (ou digite) o nome da subcategoria.";
+      if (!childLabel) return "Escolha a subcategoria.";
       const parentBudget = budgetByParent.get(parentLabel);
       // soma das outras filhas do mesmo pai (excluindo a edição atual)
       let siblingSum = 0;
@@ -261,7 +297,7 @@ const Categorizacao = () => {
                 </p>
               </div>
             ) : (
-              <div className="divide-y divide-border">
+              <div className="flex flex-col gap-2 md:gap-0 md:divide-y md:divide-border p-2 md:p-0">
                 {monthly.items.map((item) => {
                   const isOpen = !!expanded[item.parentLabel];
                   const parentBudget = budgetByParent.get(item.parentLabel);
@@ -293,12 +329,12 @@ const Categorizacao = () => {
                       open={isOpen}
                       onOpenChange={(o) => setExpanded((p) => ({ ...p, [item.parentLabel]: o }))}
                     >
-                      <div className="p-4 md:p-5 space-y-3">
-                        <div className="flex items-start gap-3">
+                      <div className="p-3.5 md:p-5 space-y-3 rounded-lg border border-border/60 bg-card/40 md:rounded-none md:border-0 md:bg-transparent">
+                        <div className="flex items-start gap-2 md:gap-3">
                           <CollapsibleTrigger asChild>
                             <button
                               type="button"
-                              className="flex items-start gap-3 flex-1 min-w-0 text-left group"
+                              className="flex items-start gap-2 md:gap-3 flex-1 min-w-0 text-left group"
                               aria-label={`Expandir ${item.parentLabel}`}
                             >
                               <ChevronRight
@@ -337,10 +373,10 @@ const Categorizacao = () => {
                             </button>
                           </CollapsibleTrigger>
                           <div className="text-right shrink-0">
-                            <p className="text-sm font-semibold tabular-nums text-foreground">
+                            <p className="text-sm font-semibold tabular-nums text-foreground whitespace-nowrap">
                               {formatBRL(item.spent)}
                             </p>
-                            <div className="mt-1 flex items-center gap-1 justify-end">
+                            <div className="mt-1 hidden md:flex items-center gap-1 justify-end">
                               {parentBudget ? (
                                 <>
                                   <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => openEditBudget(parentBudget.id)}>
@@ -370,9 +406,37 @@ const Categorizacao = () => {
                           </div>
                         </div>
                         <Progress value={visualPct} className={`h-1.5 ${barTone}`} />
+                        {/* Ações em dispositivos pequenos: ficam abaixo da barra para não apertar o título */}
+                        <div className="flex md:hidden items-center gap-1 justify-end">
+                          {parentBudget ? (
+                            <>
+                              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => openEditBudget(parentBudget.id)}>
+                                <PencilLine className="h-3 w-3 mr-1" /> Editar limite
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                onClick={() => removeBudget(parentBudget.id)}
+                                aria-label="Remover orçamento"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs"
+                              onClick={() => openNewBudget("parent", item.parentLabel)}
+                            >
+                              <Plus className="h-3 w-3 mr-1" /> Definir limite
+                            </Button>
+                          )}
+                        </div>
 
                         <CollapsibleContent>
-                          <div className="mt-3 ml-7 space-y-2 border-l border-border pl-4">
+                          <div className="mt-3 ml-2 md:ml-7 space-y-3 md:space-y-2 border-l border-border pl-3 md:pl-4">
                             {item.children.map((c) => {
                               const childBudget = budgetByChildKey.get(`${item.parentLabel}::${c.label}`);
                               const cRatio = childBudget && childBudget.monthlyLimit > 0
@@ -613,15 +677,31 @@ const Categorizacao = () => {
                 {dlgEditingId ? (
                   <div className="text-sm font-medium text-foreground">{dlgChildLabel || "—"}</div>
                 ) : (
-                  <Input
-                    placeholder="Ex.: Restaurantes"
+                  <Select
                     value={dlgChildLabel}
-                    onChange={(e) => { setDlgChildLabel(e.target.value); setDlgError(null); }}
-                    className="bg-input border-border"
-                  />
+                    onValueChange={(v) => { setDlgChildLabel(v); setDlgError(null); }}
+                    disabled={!dlgParentLabel || dlgChildOptions.length === 0}
+                  >
+                    <SelectTrigger className="bg-input border-border">
+                      <SelectValue
+                        placeholder={
+                          !dlgParentLabel
+                            ? "Escolha a categoria principal primeiro"
+                            : dlgChildOptions.length === 0
+                              ? "Nenhuma subcategoria disponível"
+                              : "Selecione a subcategoria"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-80">
+                      {dlgChildOptions.map((label) => (
+                        <SelectItem key={label} value={label}>{label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 )}
                 <p className="text-[11px] text-muted-foreground">
-                  Use o nome exato como aparece nas suas transações (ex.: a subcategoria que aparece dentro do mês).
+                  As subcategorias são as mesmas que aparecem nas suas transações.
                 </p>
               </div>
             )}
