@@ -30,20 +30,29 @@ export interface TxLike {
   value: number;
   /** "entrada" = CREDIT no cartão (pagamento recebido). */
   type: "entrada" | "saida";
+  /** Rótulo Pluggy (`category_pluggy`), e.g. "Credit card payment". */
+  categoryPluggy?: string | null;
 }
 
-const PAYMENT_REGEX = /pagamento|payment\s*received|fatura\s*paga/i;
+// Regex de positivos (alguma forma de "pagamento" recebido).
+const PAYMENT_REGEX = /pagamento\s*recebido|payment\s*received|fatura\s*paga|pagamento\s*de\s*fatura/i;
+// Anti falso-positivo: créditos no cartão que NÃO são pagamento de fatura.
+const NON_PAYMENT_CREDIT_REGEX = /cr[eé]dito\s+de\s+parcelamento|estorno|cashback|reembolso|chargeback|ajuste/i;
+const PAYMENT_CATEGORY_PLUGGY = new Set(["Credit card payment"]);
 
 export function isLikelyBillPayment(tx: TxLike): boolean {
   if (tx.type !== "entrada") return false;
-  return PAYMENT_REGEX.test(tx.description);
+  const desc = tx.description ?? "";
+  if (NON_PAYMENT_CREDIT_REGEX.test(desc)) return false;
+  if (tx.categoryPluggy && PAYMENT_CATEGORY_PLUGGY.has(tx.categoryPluggy)) return true;
+  return PAYMENT_REGEX.test(desc);
 }
 
 export interface InferOptions {
   tolerancePct?: number; // default 0.02
   minToleranceAbs?: number; // default 1.0 (R$ 1)
-  windowBeforeDays?: number; // default 30
-  windowAfterDays?: number; // default 15
+  windowBeforeDays?: number; // default 35
+  windowAfterDays?: number; // default 45
   ref?: Date;
 }
 
@@ -53,12 +62,16 @@ export function inferBillPaid(bill: BillLike, txs: TxLike[], opts: InferOptions 
 
   const tolPct = opts.tolerancePct ?? 0.02;
   const tolAbs = Math.max(opts.minToleranceAbs ?? 1, bill.totalAmount * tolPct);
-  const before = opts.windowBeforeDays ?? 30;
-  const after = opts.windowAfterDays ?? 15;
+  const before = opts.windowBeforeDays ?? 35;
+  const after = opts.windowAfterDays ?? 45;
 
-  const due = new Date(bill.dueDate + "T00:00:00").getTime();
-  const lo = due - before * 24 * 60 * 60 * 1000;
-  const hi = due + after * 24 * 60 * 60 * 1000;
+  // Janela em UTC, do início do dia LO até o FIM do dia HI (23:59:59.999).
+  // Antes era apenas "due 00:00 + 15d" → uma transação às 07:40 do 15º dia
+  // ficava 7h fora da janela. Agora cobrimos o dia inteiro.
+  const dueUtc = Date.parse(bill.dueDate.slice(0, 10) + "T00:00:00.000Z");
+  const DAY = 24 * 60 * 60 * 1000;
+  const lo = dueUtc - before * DAY;
+  const hi = dueUtc + after * DAY + (DAY - 1);
 
   for (const tx of txs) {
     if (tx.pluggyAccountId !== bill.pluggyAccountId) continue;
