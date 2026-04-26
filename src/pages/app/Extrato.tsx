@@ -3,7 +3,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Download, Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useFinance } from "@/contexts/FinanceContext";
 import { toast } from "sonner";
 import { lastNMonths, monthKeyOf, currentMonthBucket } from "@/lib/months";
@@ -15,11 +16,30 @@ const PAGE_INCREMENT = 100;
 
 const Extrato = () => {
   const { transactions, categories, updateCategory } = useFinance();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [monthKey, setMonthKey] = useState<string>(() => currentMonthBucket().key);
   const [search, setSearch] = useState("");
   const [account, setAccount] = useState("all");
-  const [category, setCategory] = useState("all");
+  const [category, setCategory] = useState<string>(() => searchParams.get("category") ?? "all");
   const [visibleCount, setVisibleCount] = useState(PAGE_INCREMENT);
+
+  // Sincroniza o filtro de categoria com a query string (?category=...).
+  // Permite vir já filtrado da Pocket View / Disponível.
+  useEffect(() => {
+    const fromUrl = searchParams.get("category");
+    if (fromUrl && fromUrl !== category) setCategory(fromUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams);
+    if (category === "all") next.delete("category");
+    else next.set("category", category);
+    if (next.toString() !== searchParams.toString()) {
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [category]);
 
   // 12 meses fixos (mesmo que ainda não haja dados em alguns) — Pluggy entrega 12m.
   const months = useMemo(() => lastNMonths(12), []);
