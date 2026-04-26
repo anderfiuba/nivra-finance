@@ -31,7 +31,6 @@ import { useFinance } from "@/contexts/FinanceContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
-import { PocketSummaryCard } from "@/components/dashboard/PocketSummaryCard";
 
 const pctChange = (curr: number, prev: number): { label: string; positive: boolean } => {
   if (prev === 0) return { label: curr === 0 ? "0%" : "+100%", positive: curr >= 0 };
@@ -141,17 +140,11 @@ const Dashboard = () => {
       </div>
 
       {/* Pocket: "Quanto posso gastar este mês?" — atalho principal mobile */}
-      <PocketSummaryCard />
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-        <KPI
-          label="Patrimônio"
-          subtitle="Contas + investimentos"
-          value={netWorth}
-          icon={Wallet}
-          tone="primary"
-        />
+      {/* Patrimônio em destaque (full-width) + KPIs do mês */}
+      <PatrimonyHeroCard value={netWorth} />
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
         <KPI
           label="Entradas no mês"
           value={monthTotals.entradas}
@@ -595,6 +588,37 @@ function KPI({ label, subtitle, value, icon: Icon, tone, trend, trendPositive, s
         </div>
         <div className={cn("h-7 w-7 md:h-9 md:w-9 rounded-lg flex items-center justify-center shrink-0", toneClass)}>
           <Icon className="h-3.5 w-3.5 md:h-4 md:w-4" />
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function PatrimonyHeroCard({ value }: { value: number }) {
+  return (
+    <Card className="relative overflow-hidden border-border p-5 md:p-7 bg-gradient-primary text-primary-foreground">
+      <div
+        className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-primary-foreground/10 blur-2xl"
+        aria-hidden="true"
+      />
+      <div
+        className="absolute -left-6 -bottom-12 h-32 w-32 rounded-full bg-primary-foreground/5 blur-2xl"
+        aria-hidden="true"
+      />
+      <div className="relative flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] md:text-xs uppercase tracking-wider text-primary-foreground/80">
+            Patrimônio
+          </p>
+          <p className="mt-1 text-3xl md:text-5xl font-bold tabular-nums tracking-tight">
+            {formatBRL(value)}
+          </p>
+          <p className="mt-1 text-xs md:text-sm text-primary-foreground/80">
+            Soma de contas + investimentos
+          </p>
+        </div>
+        <div className="h-12 w-12 md:h-14 md:w-14 rounded-2xl bg-primary-foreground/15 flex items-center justify-center shrink-0">
+          <Wallet className="h-6 w-6 md:h-7 md:w-7 text-primary-foreground" />
         </div>
       </div>
     </Card>

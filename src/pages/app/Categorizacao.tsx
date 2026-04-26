@@ -22,13 +22,17 @@ import {
   PencilLine,
   Plus,
   Trash2,
-  Wallet,
+  PieChart as PieIcon,
 } from "lucide-react";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { useFinance } from "@/contexts/FinanceContext";
 import { formatBRL } from "@/lib/format";
 import { MonthSelector } from "@/components/extrato/MonthSelector";
 import { CycleDaySettingsButton } from "@/components/CycleDaySettingsButton";
 import { DEFAULT_PARENT_CATEGORIES } from "@/lib/defaultCategories";
+import { TotalBudgetCard } from "@/components/disponivel/TotalBudgetCard";
+import { CategoryIcon } from "@/lib/categoryIcons";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -55,7 +59,9 @@ const Categorizacao = () => {
     deleteBudget,
     totalBudget,
     parentBudgetsSum,
+    currentCycleLabel,
   } = useFinance();
+  const isMobile = useIsMobile();
 
   // ---------- estado ----------
   const cycles = useMemo(() => lastCycles(12), [lastCycles]);
@@ -69,6 +75,7 @@ const Categorizacao = () => {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [showOthers, setShowOthers] = useState(false);
   const [onlyWithSpending, setOnlyWithSpending] = useState(false);
+  const [onlyWithLimit, setOnlyWithLimit] = useState(false);
 
   // dialog (somente categoria-pai)
   const [dlgOpen, setDlgOpen] = useState(false);
@@ -141,6 +148,26 @@ const Categorizacao = () => {
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
   }, [monthly.items, allCatalogParents, aggByParent]);
+
+  // Helper aplicado a qualquer lista: limita às que tem orçamento se o toggle estiver ligado.
+  const applyLimitFilter = (labels: string[]) =>
+    onlyWithLimit ? labels.filter((l) => budgetByParent.has(l)) : labels;
+
+  // Dados pro gráfico circular: TODAS as categorias-pai com gasto > 0 no ciclo,
+  // ordenadas por valor desc. Cores via HSL gerada a partir de hash do label.
+  const donutData = useMemo(() => {
+    const items = monthly.items
+      .filter((it) => it.spent > 0)
+      .sort((a, b) => b.spent - a.spent);
+    return items.map((it, idx) => ({
+      name: it.parentLabel,
+      value: it.spent,
+      color: pickHue(idx, items.length),
+    }));
+  }, [monthly.items]);
+
+  const donutInner = isMobile ? 50 : 70;
+  const donutOuter = isMobile ? 80 : 105;
 
   // ---------- dialog handlers ----------
   const openNewBudget = (parentLabel: string) => {
@@ -253,6 +280,13 @@ const Categorizacao = () => {
                     !hasChildren && "opacity-0",
                   )}
                 />
+                <div className="h-9 w-9 rounded-lg bg-secondary/60 border border-border flex items-center justify-center shrink-0">
+                  <CategoryIcon
+                    label={label}
+                    size={18}
+                    className="text-foreground/80"
+                  />
+                </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-sm font-medium text-foreground truncate group-hover:underline">
@@ -356,6 +390,13 @@ const Categorizacao = () => {
                   return (
                     <div key={c.label} className="py-1.5">
                       <div className="flex items-start gap-3">
+                        <div className="h-7 w-7 rounded-md bg-secondary/40 border border-border/60 flex items-center justify-center shrink-0 mt-0.5">
+                          <CategoryIcon
+                            label={c.label}
+                            size={14}
+                            className="text-muted-foreground"
+                          />
+                        </div>
                         <div className="min-w-0 flex-1">
                           <p className="text-xs font-medium text-foreground truncate">{c.label}</p>
                           <p className="text-[11px] text-muted-foreground mt-0.5 tabular-nums">
@@ -380,34 +421,151 @@ const Categorizacao = () => {
 
   // ============== render ==============
   return (
-    <div className="p-6 md:p-8 space-y-6 max-w-[1600px] mx-auto border-0">
+    <div
+      className="p-4 pb-10 md:p-8 space-y-5 md:space-y-6 max-w-3xl mx-auto"
+      style={{ paddingBottom: "calc(2.5rem + env(safe-area-inset-bottom))" }}
+    >
+      {/* Cabeçalho */}
       <div>
-        <h1 className="text-2xl md:text-3xl font-bold text-foreground tracking-tight">Categorias</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Acompanhe seus gastos por categoria e defina limites mensais.
+        <h1 className="text-2xl md:text-3xl font-bold text-foreground tracking-tight">
+          Categorias
+        </h1>
+        <p className="mt-1 text-xs md:text-sm text-muted-foreground">
+          Centro de gestão de limites do seu ciclo financeiro.
         </p>
       </div>
 
-      <div className="space-y-4">
-        {/* Header: ciclo + total */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <MonthSelector months={cycles} value={monthKey} onChange={setMonthKey} />
-            <CycleDaySettingsButton />
+      {/* Header do ciclo: seletor + ciclo atual */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <MonthSelector months={cycles} value={monthKey} onChange={setMonthKey} />
+          <CycleDaySettingsButton className="h-9 w-9 shrink-0" />
+        </div>
+        <p className="text-[11px] md:text-xs uppercase tracking-wider text-muted-foreground truncate">
+          Ciclo {currentCycleLabel}
+        </p>
+      </div>
+
+      {/* Limite total do ciclo financeiro */}
+      <TotalBudgetCard spent={monthly.total} />
+
+      {/* Visão geral: gráfico circular + total gasto */}
+      <Card className="bg-gradient-card border-border p-4 md:p-6">
+        <div className="flex items-center gap-2 mb-3">
+          <PieIcon className="h-4 w-4 text-primary" />
+          <h3 className="text-xs md:text-sm font-semibold text-foreground uppercase tracking-wider">
+            Gastos por categoria no ciclo
+          </h3>
+        </div>
+        {donutData.length === 0 ? (
+          <div className="h-[200px] md:h-[260px] flex items-center justify-center text-xs text-muted-foreground text-center px-4">
+            Sem gastos registrados neste ciclo.
           </div>
-          <div className="flex items-center gap-3 text-sm">
-            <Wallet className="h-4 w-4 text-muted-foreground" />
-            <span className="text-muted-foreground">Total gasto:</span>
-            <span className="font-semibold tabular-nums text-foreground">{formatBRL(monthly.total)}</span>
-            <span className="text-muted-foreground">·</span>
-            <span className="text-muted-foreground">
-              {monthly.items.length} {monthly.items.length === 1 ? "categoria com gasto" : "categorias com gasto"}
-            </span>
+        ) : (
+          <div className="flex flex-col md:flex-row items-center gap-4 md:gap-6">
+            <div className="relative w-full md:w-1/2 max-w-[280px]">
+              <ResponsiveContainer width="100%" height={isMobile ? 200 : 260}>
+                <PieChart>
+                  <Pie
+                    data={donutData}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={donutInner}
+                    outerRadius={donutOuter}
+                    paddingAngle={2}
+                  >
+                    {donutData.map((entry) => (
+                      <Cell
+                        key={entry.name}
+                        fill={entry.color}
+                        stroke="hsl(var(--card))"
+                        strokeWidth={2}
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{
+                      background: "hsl(var(--card))",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: 8,
+                      fontSize: 12,
+                    }}
+                    formatter={(v: number) => formatBRL(v)}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Total
+                </p>
+                <p className="text-base md:text-xl font-bold tabular-nums text-foreground">
+                  {formatBRL(monthly.total)}
+                </p>
+              </div>
+            </div>
+            <div className="w-full md:flex-1 space-y-1.5 max-h-[260px] overflow-y-auto pr-1">
+              {donutData.map((c) => {
+                const pct = monthly.total > 0 ? (c.value / monthly.total) * 100 : 0;
+                return (
+                  <div
+                    key={c.name}
+                    className="flex items-center justify-between text-xs gap-2"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className="h-2.5 w-2.5 rounded-full shrink-0"
+                        style={{ background: c.color }}
+                      />
+                      <CategoryIcon
+                        label={c.name}
+                        size={14}
+                        className="text-muted-foreground shrink-0"
+                      />
+                      <span className="text-foreground truncate">{c.name}</span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-foreground font-medium tabular-nums">
+                        {formatBRL(c.value)}
+                      </span>
+                      <span className="text-muted-foreground text-[11px] tabular-nums w-9 text-right">
+                        {pct.toFixed(0)}%
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
+        )}
+      </Card>
+
+      {/* Sessão: limites por categoria */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between gap-2 px-1">
+          <h3 className="text-xs uppercase tracking-wider text-muted-foreground">
+            Limites por categoria
+          </h3>
+          <span className="text-[11px] text-muted-foreground tabular-nums">
+            {monthly.items.length}{" "}
+            {monthly.items.length === 1 ? "com gasto" : "com gasto"}
+          </span>
         </div>
 
-        {/* Toggles de visualização — ACIMA da lista de categorias. */}
+        {/* Toggles de visualização */}
         <div className="space-y-2">
+          <div className="flex items-center justify-between gap-3 px-1">
+            <Label
+              htmlFor="cat-only-with-limit"
+              className="text-xs text-muted-foreground cursor-pointer select-none"
+            >
+              Apenas com limite definido
+            </Label>
+            <Switch
+              id="cat-only-with-limit"
+              checked={onlyWithLimit}
+              onCheckedChange={setOnlyWithLimit}
+            />
+          </div>
           <div className="flex items-center justify-between gap-3 px-1">
             <Label
               htmlFor="cat-only-with-spending"
@@ -442,17 +600,27 @@ const Categorizacao = () => {
         <Card className="bg-gradient-card border-border overflow-hidden">
           <div className="flex flex-col gap-2 md:gap-0 md:divide-y md:divide-border p-2 md:p-0">
             {onlyWithSpending ? (
-              labelsWithSpending.length > 0 ? (
-                labelsWithSpending.map((label) => renderRow(label))
+              applyLimitFilter(labelsWithSpending).length > 0 ? (
+                applyLimitFilter(labelsWithSpending).map((label) => renderRow(label))
               ) : (
                 <p className="text-xs text-muted-foreground text-center py-6">
-                  Nenhuma categoria com gasto neste ciclo.
+                  {onlyWithLimit
+                    ? "Nenhuma categoria com gasto e limite definido neste ciclo."
+                    : "Nenhuma categoria com gasto neste ciclo."}
                 </p>
               )
             ) : (
               <>
-                {primaryLabels.map((label) => renderRow(label))}
-                {showOthers && extraLabels.map((label) => renderRow(label))}
+                {applyLimitFilter(primaryLabels).map((label) => renderRow(label))}
+                {showOthers &&
+                  applyLimitFilter(extraLabels).map((label) => renderRow(label))}
+                {onlyWithLimit &&
+                  applyLimitFilter(primaryLabels).length === 0 &&
+                  (!showOthers || applyLimitFilter(extraLabels).length === 0) && (
+                    <p className="text-xs text-muted-foreground text-center py-6">
+                      Nenhuma categoria com limite definido.
+                    </p>
+                  )}
               </>
             )}
           </div>
@@ -463,7 +631,7 @@ const Categorizacao = () => {
             Nenhum gasto registrado em {monthBucket.longLabel}.
           </p>
         )}
-      </div>
+      </section>
 
       {/* ============= Dialog de orçamento (somente categoria-pai) ============= */}
       <Dialog open={dlgOpen} onOpenChange={setDlgOpen}>
@@ -531,5 +699,15 @@ const Categorizacao = () => {
     </div>
   );
 };
+
+/**
+ * Distribui matizes (HSL) igualmente entre N categorias para o donut.
+ * Mantém saturação/lightness do design system.
+ */
+function pickHue(idx: number, total: number): string {
+  const step = total > 0 ? 360 / total : 30;
+  const hue = Math.round((idx * step + 12) % 360);
+  return `hsl(${hue} 70% 55%)`;
+}
 
 export default Categorizacao;
