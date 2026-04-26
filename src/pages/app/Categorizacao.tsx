@@ -329,7 +329,7 @@ const Categorizacao = () => {
                       open={isOpen}
                       onOpenChange={(o) => setExpanded((p) => ({ ...p, [item.parentLabel]: o }))}
                     >
-                      <div className="p-3.5 md:p-5 space-y-3 rounded-lg border border-border/60 bg-card/40 md:rounded-none md:border-0 md:bg-transparent">
+                      <div className="p-3.5 md:p-5 space-y-3 rounded-lg border bg-card/40 md:rounded-none md:border-0 md:bg-transparent px-[25px] py-[25px] border-primary mx-0">
                         <div className="flex items-start gap-2 md:gap-3">
                           <CollapsibleTrigger asChild>
                             <button
