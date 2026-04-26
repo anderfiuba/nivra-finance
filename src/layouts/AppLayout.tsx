@@ -5,6 +5,7 @@ import { Bell, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
+import { ConsentGate } from "@/components/ConsentGate";
 
 export default function AppLayout() {
   const { user } = useAuth();
@@ -39,6 +40,7 @@ export default function AppLayout() {
           </main>
         </div>
       </div>
+      <ConsentGate />
     </SidebarProvider>
   );
 }
