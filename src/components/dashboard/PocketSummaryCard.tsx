@@ -84,7 +84,7 @@ export function PocketSummaryCard() {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
-            Disponível este mês
+            Disponível no seu ciclo financeiro
           </p>
           <p
             className={cn(
