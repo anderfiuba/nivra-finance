@@ -434,6 +434,9 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           installmentNumber: t.installment_number ?? null,
           totalInstallments: t.total_installments ?? null,
           accountTag: accMeta?.tag ?? null,
+          // Rótulo nativo da Pluggy (e.g. "Credit card payment") — usado pela
+          // inferência de pagamento de fatura.
+          categoryPluggy: t.category_pluggy ?? null,
           // Metadados auxiliares (não-padrão do nosso Transaction, mas React aceita)
           ...(isInternational
             ? {

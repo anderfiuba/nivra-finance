@@ -107,6 +107,7 @@ const Faturas = () => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem(DISMISS_KEY) === "1";
   });
+  const [showEditConfig, setShowEditConfig] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -278,6 +279,12 @@ const Faturas = () => {
     return { total, installments, oneOff };
   }, [openItems]);
 
+  // Quantidade de bills marcadas como pagas via inferência (informativo).
+  const inferredPaidCount = useMemo(
+    () => bills.filter((b) => b.paidInferred).length,
+    [bills],
+  );
+
   // Estado vazio (sem cartões conectados).
   if (creditAccounts.length === 0) {
     return (
@@ -301,13 +308,6 @@ const Faturas = () => {
   }
 
   const showConfig = pendingConfigAccounts.length > 0 && !dismissedConfig;
-  const [showEditConfig, setShowEditConfig] = useState(false);
-
-  // Quantidade de bills marcadas como pagas via inferência (informativo).
-  const inferredPaidCount = useMemo(
-    () => bills.filter((b) => b.paidInferred).length,
-    [bills],
-  );
 
   return (
     <div className="p-6 md:p-8 space-y-6 max-w-[1600px] mx-auto">
