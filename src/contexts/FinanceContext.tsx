@@ -949,6 +949,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     budgetAlerts,
     upsertBudget,
     deleteBudget,
+    monthlyCategoryAggregates,
     cardCycleSettings,
     upsertCardCycle,
   };
