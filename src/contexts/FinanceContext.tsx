@@ -193,6 +193,12 @@ interface FinanceContextValue {
     parentCategoryLabel?: string | null,
   ) => Promise<void>;
   deleteBudget: (id: string) => Promise<void>;
+  /** Limite mensal TOTAL definido pelo usuário (opcional). */
+  totalBudget: TotalBudget | null;
+  /** Soma dos limites de categorias-pai com orçamento. */
+  parentBudgetsSum: number;
+  upsertTotalBudget: (monthlyLimit: number, alertThreshold: number) => Promise<void>;
+  deleteTotalBudget: () => Promise<void>;
   /** Agrega gastos de um mês civil (YYYY-MM) por categoria pai → filhas. */
   monthlyCategoryAggregates: (monthKey: string) => {
     total: number;
