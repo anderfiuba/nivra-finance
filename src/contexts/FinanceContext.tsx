@@ -1023,6 +1023,51 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     [refresh],
   );
 
+  const parentBudgetsSum = useMemo(
+    () =>
+      categoryBudgets
+        .filter((b) => b.scope === "parent")
+        .reduce((s, b) => s + b.monthlyLimit, 0),
+    [categoryBudgets],
+  );
+
+  const upsertTotalBudget = useCallback(
+    async (monthlyLimit: number, alertThreshold: number) => {
+      if (!user) return;
+      const { error } = await supabase
+        .from("total_budget_settings")
+        .upsert(
+          {
+            user_id: user.id,
+            monthly_limit: monthlyLimit,
+            alert_threshold: alertThreshold,
+          },
+          { onConflict: "user_id" },
+        );
+      if (error) {
+        console.error("upsertTotalBudget error", error);
+        toast.error("Não foi possível salvar o limite total.");
+        return;
+      }
+      await refresh();
+    },
+    [user, refresh],
+  );
+
+  const deleteTotalBudget = useCallback(async () => {
+    if (!user) return;
+    const { error } = await supabase
+      .from("total_budget_settings")
+      .delete()
+      .eq("user_id", user.id);
+    if (error) {
+      console.error("deleteTotalBudget error", error);
+      toast.error("Não foi possível remover o limite total.");
+      return;
+    }
+    await refresh();
+  }, [user, refresh]);
+
   const upsertCardCycle = useCallback(
     async (pluggyAccountId: string, closingDay: number, dueDay: number) => {
       if (!user) return;
