@@ -1,8 +1,7 @@
-import { LayoutDashboard, Wallet, FileText, Plug, Settings, Crown, LogOut, Tags, CreditCard } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { Logo } from "@/components/Logo";
-import { useFinance } from "@/contexts/FinanceContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { LayoutDashboard, Wallet, FileText, Plug, Settings, Crown, LogOut, Tags, CreditCard } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -21,7 +20,7 @@ const items = [
   { title: "Contas", url: "/app/contas", icon: Wallet },
   { title: "Extrato Unificado", url: "/app/extrato", icon: FileText },
   { title: "Faturas", url: "/app/faturas", icon: CreditCard },
-  { title: "Categorias", url: "/app/categorizacao", icon: Tags, badgeKey: "pending" as const },
+  { title: "Categorias", url: "/app/categorizacao", icon: Tags },
   { title: "Conexões Open Finance", url: "/app/conexoes", icon: Plug },
   { title: "Configurações", url: "/app/configuracoes", icon: Settings },
   { title: "Planos", url: "/app/planos", icon: Crown },
@@ -32,9 +31,7 @@ export function AppSidebar() {
   const collapsed = state === "collapsed";
   const location = useLocation();
   const navigate = useNavigate();
-  const { pendingList } = useFinance();
   const { displayName, user, signOut } = useAuth();
-  const pendingCount = pendingList.length;
 
   const handleSignOut = async () => {
     await signOut();
@@ -63,7 +60,6 @@ export function AppSidebar() {
             <SidebarMenu>
               {items.map((item) => {
                 const active = isActive(item.url, item.end);
-                const showBadge = item.badgeKey === "pending" && pendingCount > 0;
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton asChild className="h-10">
@@ -78,14 +74,6 @@ export function AppSidebar() {
                       >
                         <item.icon className={`h-4 w-4 shrink-0 ${active ? "text-primary" : ""}`} />
                         {!collapsed && <span className="text-sm flex-1">{item.title}</span>}
-                        {!collapsed && showBadge && (
-                          <span className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1.5 text-[10px] font-semibold text-accent-foreground">
-                            {pendingCount}
-                          </span>
-                        )}
-                        {collapsed && showBadge && (
-                          <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-accent" />
-                        )}
                       </NavLink>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

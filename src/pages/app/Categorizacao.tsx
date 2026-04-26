@@ -6,7 +6,6 @@ import { Progress } from "@/components/ui/progress";
 import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   Dialog,
@@ -19,11 +18,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertTriangle,
-  ArrowDownRight,
-  ArrowUpRight,
-  CheckCircle2,
   ChevronRight,
-  HelpCircle,
   PencilLine,
   Plus,
   Tags,
@@ -31,8 +26,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { useFinance } from "@/contexts/FinanceContext";
-import { formatBRL, formatDate } from "@/lib/format";
-import { Transaction } from "@/data/mockData";
+import { formatBRL } from "@/lib/format";
 import { lastNMonths, currentMonthBucket } from "@/lib/months";
 import { MonthSelector } from "@/components/extrato/MonthSelector";
 import { toast } from "sonner";
@@ -42,10 +36,7 @@ type BudgetScope = "parent" | "child";
 
 const Categorizacao = () => {
   const {
-    pendingList,
-    pendingByType,
     categories,
-    updateCategory,
     categoryBudgets,
     monthlyCategoryAggregates,
     upsertBudget,
@@ -56,7 +47,6 @@ const Categorizacao = () => {
   const months = useMemo(() => lastNMonths(12), []);
   const [monthKey, setMonthKey] = useState<string>(currentMonthBucket().key);
 
-  const [draftCategory, setDraftCategory] = useState<Record<string, string>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   // dialog
@@ -131,25 +121,6 @@ const Categorizacao = () => {
     }
     return m;
   }, [categoryBudgets]);
-
-  // ---------- pendentes ----------
-  const visible = pendingList.filter((t) => t.pendingType === "sem_categoria");
-  const semCategoriaCount = pendingByType.sem_categoria;
-
-  const handleSaveCategory = (t: Transaction) => {
-    const value = draftCategory[t.id];
-    if (!value) {
-      toast.error("Selecione uma categoria antes de salvar.");
-      return;
-    }
-    updateCategory(t.id, value);
-    setDraftCategory((prev) => {
-      const next = { ...prev };
-      delete next[t.id];
-      return next;
-    });
-    toast.success("Categoria atualizada");
-  };
 
   // ---------- abrir/fechar dialog ----------
   const openNewBudget = (scope: BudgetScope, parentLabel: string, childLabel?: string) => {
@@ -258,21 +229,7 @@ const Categorizacao = () => {
         </p>
       </div>
 
-      <Tabs defaultValue="categorias">
-        <TabsList>
-          <TabsTrigger value="categorias">Por categoria</TabsTrigger>
-          <TabsTrigger value="pendentes">
-            Pendentes
-            {semCategoriaCount > 0 && (
-              <span className="ml-2 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-accent-foreground">
-                {semCategoriaCount}
-              </span>
-            )}
-          </TabsTrigger>
-        </TabsList>
-
-        {/* ========== Aba Por categoria ========== */}
-        <TabsContent value="categorias" className="space-y-4">
+      <div className="space-y-4">
           {/* Header: mês + total */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <MonthSelector months={months} value={monthKey} onChange={setMonthKey} />
@@ -532,85 +489,7 @@ const Categorizacao = () => {
               </div>
             )}
           </Card>
-        </TabsContent>
-
-        {/* ========== Aba Pendentes ========== */}
-        <TabsContent value="pendentes" className="space-y-4">
-          <Card className="bg-gradient-card border-border overflow-hidden">
-            {visible.length === 0 ? (
-              <div className="p-16 text-center">
-                <div className="h-12 w-12 rounded-full bg-success/10 flex items-center justify-center mx-auto mb-4">
-                  <CheckCircle2 className="h-6 w-6 text-success" />
-                </div>
-                <p className="text-base font-semibold text-foreground">Tudo em dia</p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Nenhuma pendência no momento. Volte depois da próxima sincronização.
-                </p>
-              </div>
-            ) : (
-              <div className="divide-y divide-border">
-                {visible.map((t) => {
-                  const draft = draftCategory[t.id] ?? "";
-                  return (
-                    <div key={t.id} className="p-4 md:p-5 flex flex-col lg:flex-row lg:items-center gap-4">
-                      <div className="flex items-start gap-3 flex-1 min-w-0">
-                        <div className={`h-10 w-10 rounded-lg flex items-center justify-center shrink-0 ${
-                          t.type === "entrada" ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"
-                        }`}>
-                          {t.type === "entrada" ? <ArrowUpRight className="h-4 w-4" /> : <ArrowDownRight className="h-4 w-4" />}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-foreground truncate">{t.description}</p>
-                          <div className="flex items-center gap-2 mt-1 flex-wrap">
-                            <Badge variant="outline" className="text-xs h-5 border-border bg-secondary/50 inline-flex items-center gap-1">
-                              <HelpCircle className="h-3 w-3" /> Sem categoria
-                            </Badge>
-                            <span className="text-xs text-muted-foreground">{t.account}</span>
-                            <span className="text-xs text-muted-foreground">·</span>
-                            <span className="text-xs text-muted-foreground">{formatDate(t.date)}</span>
-                          </div>
-                        </div>
-                      </div>
-                      <p className={`text-sm font-semibold shrink-0 lg:w-28 lg:text-right ${
-                        t.type === "entrada" ? "text-success" : "text-destructive"
-                      }`}>
-                        {t.type === "entrada" ? "+" : "−"}
-                        {formatBRL(t.value)}
-                      </p>
-                      <div className="flex items-center gap-2 flex-wrap shrink-0">
-                        <Select
-                          value={draft}
-                          onValueChange={(v) => setDraftCategory((p) => ({ ...p, [t.id]: v }))}
-                        >
-                          <SelectTrigger className="w-44 h-9 bg-input border-border" aria-label="Definir categoria">
-                            <SelectValue placeholder="Definir categoria" />
-                          </SelectTrigger>
-                          <SelectContent className="max-h-80">
-                            {parentCategoryLabels.length === 0 ? (
-                              <SelectItem value="__none" disabled>Carregando…</SelectItem>
-                            ) : (
-                              parentCategoryLabels.map((label) => (
-                                <SelectItem key={label} value={label}>{label}</SelectItem>
-                              ))
-                            )}
-                          </SelectContent>
-                        </Select>
-                        <Button
-                          size="sm"
-                          className="bg-gradient-primary text-primary-foreground hover:opacity-90"
-                          onClick={() => handleSaveCategory(t)}
-                        >
-                          Salvar
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </Card>
-        </TabsContent>
-      </Tabs>
+      </div>
 
       {/* ============= Dialog de orçamento ============= */}
       <Dialog open={dlgOpen} onOpenChange={setDlgOpen}>
