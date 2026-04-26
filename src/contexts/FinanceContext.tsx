@@ -262,6 +262,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       setItems([]);
       setBills([]);
       setCategoryBudgets([]);
+      setTotalBudget(null);
       setCardCycleSettings({});
       return;
     }
@@ -275,6 +276,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         { data: budgetData },
         { data: itemData },
         { data: cycleData },
+        { data: totalBudgetData },
       ] = await Promise.all([
         supabase
           .from("pluggy_accounts")
@@ -313,6 +315,10 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         supabase
           .from("card_cycle_settings")
           .select("pluggy_account_id,closing_day,due_day"),
+        supabase
+          .from("total_budget_settings")
+          .select("id,monthly_limit,alert_threshold")
+          .maybeSingle(),
       ]);
 
       // Index pluggy_items por pluggy_item_id pra resolver logo/cor/sync.
