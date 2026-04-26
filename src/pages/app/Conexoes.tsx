@@ -314,6 +314,7 @@ const Conexoes = () => {
             const isPartial =
               (it.execution_status && it.execution_status !== "SUCCESS") ||
               !!it.last_sync_warning;
+            const isRateLimited = !!it.last_sync_warning && /limite mensal/i.test(it.last_sync_warning);
             const initials = it.connector_name.substring(0, 2).toUpperCase();
             return (
               <Card
@@ -376,7 +377,7 @@ const Conexoes = () => {
                   </p>
                 </div>
                 <div className="flex items-center gap-2 ml-auto">
-                  {isPartial && (
+                  {isPartial && !isRateLimited && (
                     <Button
                       size="sm"
                       variant="outline"
@@ -405,16 +406,27 @@ const Conexoes = () => {
                     <AlertTriangle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
                     <div className="text-xs text-foreground leading-relaxed">
                       <p className="font-medium">
-                        Alguns dados não foram retornados pelo banco nesta sincronização.
+                        {isRateLimited
+                          ? "Limite mensal do Open Finance atingido neste banco"
+                          : "Alguns dados não foram retornados pelo banco nesta sincronização."}
                       </p>
                       {it.last_sync_warning && (
                         <p className="mt-1 text-muted-foreground">{it.last_sync_warning}</p>
                       )}
-                      <p className="mt-1.5 text-muted-foreground">
-                        Clique em <strong>Reconectar</strong> e, no widget do banco, autorize todos os
-                        produtos disponíveis (extrato, cartões, identidade) para liberar a visualização
-                        completa.
-                      </p>
+                      {isRateLimited ? (
+                        <p className="mt-1.5 text-muted-foreground">
+                          O Banco Central define quotas mensais por CPF/instituição no Open Finance. O acesso
+                          ao <strong>extrato e saldos da conta corrente</strong> volta automaticamente no
+                          início do próximo mês — você não precisa reconectar. Cartões, faturas e demais
+                          dados continuam atualizando normalmente.
+                        </p>
+                      ) : (
+                        <p className="mt-1.5 text-muted-foreground">
+                          Clique em <strong>Reconectar</strong> e, no widget do banco, autorize todos os
+                          produtos disponíveis (extrato, cartões, identidade) para liberar a visualização
+                          completa.
+                        </p>
+                      )}
                     </div>
                   </div>
                 )}
