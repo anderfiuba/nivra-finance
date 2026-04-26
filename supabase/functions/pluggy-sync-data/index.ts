@@ -502,10 +502,18 @@ function buildSyncWarning(statusDetail: any, accounts: PluggyAccount[]): string 
         | undefined;
       if (!node) continue;
       if (node.isUpdated === false) {
-        issues.push(`${label} não foi atualizado nesta sincronização`);
-      } else if (Array.isArray(node.warnings) && node.warnings.length > 0) {
-        const msg = node.warnings[0]?.message ?? "aviso retornado pelo banco";
-        issues.push(`${label}: ${msg}`);
+        // Identifica rate limit do Open Finance — mensagem específica e
+        // acionável (esperar reset mensal, não reconectar).
+        const warn = Array.isArray(node.warnings) ? node.warnings[0]?.message ?? "" : "";
+        if (/rate\s*limit|operational\s*limit/i.test(warn)) {
+          issues.push(
+            `${label}: limite mensal do Open Finance atingido pelo banco para o seu CPF nesta instituição (reseta no início do próximo mês)`,
+          );
+        } else if (warn) {
+          issues.push(`${label} não atualizado: ${warn}`);
+        } else {
+          issues.push(`${label} não foi atualizado nesta sincronização`);
+        }
       }
     }
   }
