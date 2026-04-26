@@ -472,6 +472,9 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           // Rótulo nativo da Pluggy (e.g. "Credit card payment") — usado pela
           // inferência de pagamento de fatura.
           categoryPluggy: t.category_pluggy ?? null,
+          categoryId: parentNode?.id ?? originalNode?.id ?? null,
+          categoryParentId: parentNode?.id ?? null,
+          categoryChildLabel: childLabel,
           // Metadados auxiliares (não-padrão do nosso Transaction, mas React aceita)
           ...(isInternational
             ? {
