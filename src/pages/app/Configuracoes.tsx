@@ -4,12 +4,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { CalendarRange } from "lucide-react";
+import { CalendarRange, Moon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useFinance } from "@/contexts/FinanceContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatCycleLabel, getCycleRange } from "@/lib/cycle";
 import { toast } from "sonner";
+import { useTheme } from "next-themes";
 
 const REFERENCE_DATE = new Date();
 
@@ -17,6 +18,12 @@ const Configuracoes = () => {
   const { cycleDay, setCycleDay } = useFinance();
   const { displayName, user } = useAuth();
   const [draftDay, setDraftDay] = useState<string>(String(cycleDay));
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     setDraftDay(String(cycleDay));
@@ -136,10 +143,31 @@ const Configuracoes = () => {
         <p className="text-xs text-muted-foreground mt-1">Personalize sua experiência.</p>
         <Separator className="my-5" />
         <div className="space-y-5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                <Moon className="h-4 w-4 text-primary" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-foreground">Modo escuro</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Use uma aparência escura para ambientes com pouca luz. O modo claro é o padrão.
+                </p>
+              </div>
+            </div>
+            {mounted ? (
+              <Switch
+                checked={theme === "dark"}
+                onCheckedChange={(v) => setTheme(v ? "dark" : "light")}
+                aria-label="Alternar modo escuro"
+              />
+            ) : (
+              <Switch checked={false} disabled aria-label="Alternar modo escuro" />
+            )}
+          </div>
           {[
             { title: "Resumo semanal por e-mail", desc: "Receba um panorama financeiro toda segunda-feira.", on: true },
             { title: "Insights de IA em tempo real", desc: "Notificações instantâneas para anomalias e oportunidades.", on: true },
-            { title: "Tema escuro", desc: "Ativo por padrão.", on: true },
           ].map((item, i) => (
             <div key={i} className="flex items-start justify-between gap-4">
               <div>
