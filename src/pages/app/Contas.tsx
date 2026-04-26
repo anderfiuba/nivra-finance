@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Plus, Wallet, Loader2 } from "lucide-react";
@@ -8,10 +9,31 @@ import { AccountRow } from "@/components/contas/AccountRow";
 import { ConnectionRow } from "@/components/contas/ConnectionRow";
 
 const Contas = () => {
-  const { accounts, items, isLoading, refresh } = useFinance();
+  const { accounts, items, transactions, isLoading, refresh } = useFinance();
 
   const creditCards = accounts.filter((a) => (a.type ?? "").toUpperCase() === "CREDIT");
   const bankAccounts = accounts.filter((a) => (a.type ?? "").toUpperCase() !== "CREDIT");
+
+  // Heurística para conectores não-Open-Finance (ex: Mercado Pago) que entregam
+  // saldo zero apesar de existir movimento. Usamos um sinal observável sem
+  // depender de bandeira por conector: se o saldo da conta BANK é exatamente 0
+  // E houve movimentação nos últimos 30 dias, sinalizamos como provavelmente
+  // incompleto. Não causa falso-positivo para contas legitimamente zeradas
+  // que ficaram inativas.
+  const incompleteFlags = useMemo(() => {
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const moved = new Set<string>();
+    for (const t of transactions) {
+      if (!t.pluggyAccountId) continue;
+      if (new Date(t.date).getTime() >= cutoff) moved.add(t.pluggyAccountId);
+    }
+    const flags: Record<string, boolean> = {};
+    for (const a of bankAccounts) {
+      const balZero = (a.balance ?? 0) === 0 && (a.automaticallyInvestedBalance ?? 0) === 0;
+      flags[a.id] = balZero && moved.has(a.pluggyAccountId);
+    }
+    return flags;
+  }, [bankAccounts, transactions]);
 
   // Total de cartões = soma das dívidas (saldo absoluto)
   const creditTotal = creditCards.reduce((sum, a) => sum + Math.abs(a.balance ?? 0), 0);
@@ -86,7 +108,12 @@ const Contas = () => {
               totalValue={bankTotal}
             >
               {bankAccounts.map((acc) => (
-                <AccountRow key={acc.id} account={acc} variant="bank" />
+                <AccountRow
+                  key={acc.id}
+                  account={acc}
+                  variant="bank"
+                  balanceLikelyIncomplete={incompleteFlags[acc.id]}
+                />
               ))}
             </AccountGroupCard>
           )}
