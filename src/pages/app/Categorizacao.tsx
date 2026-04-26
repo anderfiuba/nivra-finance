@@ -80,9 +80,16 @@ const Categorizacao = () => {
   }, [cycles, monthKey]);
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [showOthers, setShowOthers] = useState(false);
-  const [onlyWithSpending, setOnlyWithSpending] = useState(false);
-  const [onlyWithLimit, setOnlyWithLimit] = useState(false);
+  // Filtro único da lista de categorias (substitui os 3 toggles antigos):
+  // - "default":        7 categorias-pai padrão
+  // - "withSpending":   apenas categorias com gasto no ciclo
+  // - "withLimit":      apenas categorias com limite definido
+  // - "all":            mostra tudo (padrão + extras do catálogo)
+  type FilterMode = "default" | "withSpending" | "withLimit" | "all";
+  const [filterMode, setFilterMode] = useState<FilterMode>("default");
+  const onlyWithSpending = filterMode === "withSpending";
+  const onlyWithLimit = filterMode === "withLimit";
+  const showOthers = filterMode === "all";
 
   // dialog (somente categoria-pai)
   const [dlgOpen, setDlgOpen] = useState(false);
