@@ -148,6 +148,10 @@ const Dashboard = () => {
   );
 
   const showSyncWarning = bankAccountsWithoutTx.length > 0 || partialSyncItems.length > 0;
+  const isRateLimited = useMemo(
+    () => partialSyncItems.some((it) => it.lastSyncWarning && /limite mensal/i.test(it.lastSyncWarning)),
+    [partialSyncItems],
+  );
 
   return (
     <div className="p-4 md:p-8 space-y-4 md:space-y-6 max-w-[1600px] mx-auto">
@@ -210,11 +214,13 @@ const Dashboard = () => {
             <AlertTriangle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
             <div className="text-xs text-foreground leading-relaxed flex-1">
               <p className="font-medium">
-                {bankAccountsWithoutTx.length > 0
+                {isRateLimited
+                  ? "Extrato bloqueado pelo limite mensal do Open Finance"
+                  : bankAccountsWithoutTx.length > 0
                   ? `Conta${bankAccountsWithoutTx.length > 1 ? "s" : ""} sem extrato sincronizado`
                   : "Sincronização parcial detectada"}
               </p>
-              {bankAccountsWithoutTx.length > 0 && (
+              {bankAccountsWithoutTx.length > 0 && !isRateLimited && (
                 <p className="mt-1 text-muted-foreground">
                   {bankAccountsWithoutTx
                     .map((a) => `${a.connectorName ?? "Banco"} — ${a.name}`)
@@ -222,15 +228,22 @@ const Dashboard = () => {
                   não retornou movimentações. Sem extrato, o histórico de patrimônio fica preso ao saldo atual.
                 </p>
               )}
-              {bankAccountsWithoutTx.length === 0 && partialSyncItems[0]?.lastSyncWarning && (
+              {(isRateLimited || bankAccountsWithoutTx.length === 0) && partialSyncItems[0]?.lastSyncWarning && (
                 <p className="mt-1 text-muted-foreground">{partialSyncItems[0].lastSyncWarning}</p>
               )}
-              <Link
-                to="/app/conexoes"
-                className="inline-block mt-2 text-warning font-medium hover:underline"
-              >
-                Reconectar agora →
-              </Link>
+              {isRateLimited ? (
+                <p className="mt-2 text-muted-foreground">
+                  O Banco Central impõe quotas mensais por CPF/instituição. O acesso volta automaticamente
+                  no início do próximo mês — não é preciso reconectar.
+                </p>
+              ) : (
+                <Link
+                  to="/app/conexoes"
+                  className="inline-block mt-2 text-warning font-medium hover:underline"
+                >
+                  Reconectar agora →
+                </Link>
+              )}
             </div>
           </div>
         )}
