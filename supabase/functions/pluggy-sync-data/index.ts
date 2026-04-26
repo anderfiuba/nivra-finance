@@ -199,22 +199,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Cliente do usuário (RLS) — usado apenas para validar posse.
-    const userClient = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } },
-    );
-    const { data: userData, error: userError } = await userClient.auth.getUser();
-    if (userError || !userData.user) {
-      return new Response(JSON.stringify({ error: "unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-    const userId = userData.user.id;
-
-    const body = (await req.json().catch(() => ({}))) as { itemId?: string };
+    const body = (await req.json().catch(() => ({}))) as { itemId?: string; source?: string };
     if (!body.itemId) {
       return new Response(JSON.stringify({ error: "itemId_required" }), {
         status: 400,
@@ -222,17 +207,70 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Confirma posse via RLS
-    const { data: ownItem, error: ownErr } = await userClient
-      .from("pluggy_items")
-      .select("pluggy_item_id")
-      .eq("pluggy_item_id", body.itemId)
-      .maybeSingle();
-    if (ownErr || !ownItem) {
-      return new Response(JSON.stringify({ error: "item_not_found_or_forbidden" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    // Cliente service role para upsert + ler settings.
+    const adminClient = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+
+    // Self-heal: garante que app_settings.service_key esteja correta para o cron.
+    // Roda barato: só faz upsert se diferente.
+    try {
+      const { data: settingRow } = await adminClient
+        .from("app_settings")
+        .select("value")
+        .eq("key", "service_key")
+        .maybeSingle();
+      const currentKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+      if (currentKey && (!settingRow || settingRow.value !== currentKey)) {
+        await adminClient.from("app_settings").upsert(
+          { key: "service_key", value: currentKey, updated_at: new Date().toISOString() },
+          { onConflict: "key" },
+        );
+      }
+    } catch (e) {
+      console.warn("app_settings self-heal skipped", e);
+    }
+
+    // Resolve user_id do item (suporta caller via user JWT OU cron via service role).
+    let userId: string | null = null;
+    if (body.source !== "cron") {
+      // Fluxo interativo: valida JWT do usuário e confirma posse via RLS.
+      const userClient = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_ANON_KEY")!,
+        { global: { headers: { Authorization: authHeader } } },
+      );
+      const { data: userData, error: userError } = await userClient.auth.getUser();
+      if (!userError && userData.user) {
+        userId = userData.user.id;
+        const { data: ownItem } = await userClient
+          .from("pluggy_items")
+          .select("pluggy_item_id")
+          .eq("pluggy_item_id", body.itemId)
+          .maybeSingle();
+        if (!ownItem) {
+          return new Response(JSON.stringify({ error: "item_not_found_or_forbidden" }), {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
+    }
+    if (!userId) {
+      // Caller cron (ou fallback): resolve user_id direto na tabela via service role.
+      const { data: itemRow, error: itemRowErr } = await adminClient
+        .from("pluggy_items")
+        .select("user_id")
+        .eq("pluggy_item_id", body.itemId)
+        .maybeSingle();
+      if (itemRowErr || !itemRow) {
+        return new Response(JSON.stringify({ error: "item_not_found" }), {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      userId = itemRow.user_id as string;
     }
 
     // 1. Atualiza status do item
@@ -261,12 +299,6 @@ Deno.serve(async (req) => {
       );
     }
     const accounts: PluggyAccount[] = accJson.results ?? [];
-
-    // Cliente service role para upsert (bypassa RLS, mas força user_id = userId).
-    const adminClient = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
 
     // Sincroniza catálogo de categorias (cache de 7d).
     await syncCategoriesCatalog(adminClient);
