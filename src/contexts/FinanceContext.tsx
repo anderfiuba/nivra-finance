@@ -10,6 +10,9 @@ import {
   getCycleRange,
   getPreviousCycleRange,
   isWithinCycle,
+  lastNCycles,
+  currentCycleBucket,
+  type CycleBucket,
 } from "@/lib/cycle";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
