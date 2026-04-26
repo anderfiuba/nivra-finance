@@ -554,6 +554,16 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         })),
       );
 
+      setTotalBudget(
+        totalBudgetData
+          ? {
+              id: totalBudgetData.id,
+              monthlyLimit: Number(totalBudgetData.monthly_limit),
+              alertThreshold: Number(totalBudgetData.alert_threshold),
+            }
+          : null,
+      );
+
       const cycleMap: Record<string, CardCycleSetting> = {};
       for (const c of (cycleData ?? [])) {
         cycleMap[c.pluggy_account_id] = {
