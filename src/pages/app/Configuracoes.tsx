@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { formatCycleLabel, getCycleRange } from "@/lib/cycle";
 import { toast } from "sonner";
 import { useTheme } from "next-themes";
+import { PrivacyDataCard } from "@/components/configuracoes/PrivacyDataCard";
 
 const REFERENCE_DATE = new Date();
 
@@ -179,6 +180,8 @@ const Configuracoes = () => {
           ))}
         </div>
       </Card>
+
+      <PrivacyDataCard />
     </div>
   );
 };
