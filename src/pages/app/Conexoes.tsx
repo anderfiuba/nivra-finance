@@ -13,6 +13,7 @@ import {
   Monitor,
   Plug,
   Clock,
+  RefreshCw,
 } from "lucide-react";
 import { useDeviceType } from "@/hooks/useDeviceType";
 import { supabase } from "@/integrations/supabase/client";
@@ -32,6 +33,7 @@ interface PluggyItemRow {
   connector_primary_color: string | null;
   status: string | null;
   execution_status: string | null;
+  last_sync_warning: string | null;
   last_synced_at: string | null;
   created_at: string;
   updated_at: string;
@@ -47,6 +49,7 @@ const Conexoes = () => {
   const [loadingList, setLoadingList] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [reconnectingItemId, setReconnectingItemId] = useState<string | null>(null);
 
   const loadItems = useCallback(async () => {
     if (!user) return;
@@ -140,6 +143,54 @@ const Conexoes = () => {
       const message = err instanceof Error ? err.message : "Falha ao iniciar conexão.";
       toast.error("Não foi possível iniciar a conexão", { description: message });
       setConnecting(false);
+    }
+  };
+
+  // Reabre o widget Pluggy em modo update — usuário pode autorizar produtos
+  // que faltaram (ex.: extrato da conta corrente) sem perder a vinculação.
+  const reconnectItem = async (itemId: string) => {
+    if (!user) {
+      toast.error("Faça login para reconectar.");
+      return;
+    }
+    setReconnectingItemId(itemId);
+    try {
+      const { data, error } = await supabase.functions.invoke("pluggy-connect-token", {
+        body: { itemId },
+      });
+      if (error) throw error;
+      const token = (data as { accessToken?: string })?.accessToken;
+      if (!token) throw new Error("Token não retornado pela Pluggy.");
+      const pluggyConnect = new PluggyConnect({
+        connectToken: token,
+        includeSandbox: false,
+        updateItem: itemId,
+        onSuccess: async () => {
+          toast.success("Reconexão concluída. Sincronizando…");
+          const { error: syncErr } = await supabase.functions.invoke("pluggy-sync-data", {
+            body: { itemId },
+          });
+          if (syncErr) {
+            toast.error("Reconectado, mas falha ao sincronizar.", {
+              description: syncErr.message,
+            });
+          } else {
+            toast.success("Dados atualizados!");
+          }
+          loadItems();
+        },
+        onError: (err: { message?: string }) => {
+          toast.error("Reconexão não concluída", {
+            description: err?.message ?? "Tente novamente.",
+          });
+        },
+        onClose: () => setReconnectingItemId(null),
+      });
+      pluggyConnect.init();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Falha ao iniciar reconexão.";
+      toast.error("Não foi possível reconectar", { description: message });
+      setReconnectingItemId(null);
     }
   };
 
@@ -260,12 +311,17 @@ const Conexoes = () => {
           {items.map((it) => {
             const isOk = STATUS_OK.has(it.status);
             const isReauth = STATUS_REAUTH.has(it.status);
+            const isPartial =
+              (it.execution_status && it.execution_status !== "SUCCESS") ||
+              !!it.last_sync_warning;
+            const isRateLimited = !!it.last_sync_warning && /limite mensal/i.test(it.last_sync_warning);
             const initials = it.connector_name.substring(0, 2).toUpperCase();
             return (
               <Card
                 key={it.id}
-                className="bg-gradient-card border-border p-5 flex items-center gap-4 flex-wrap"
+                className="bg-gradient-card border-border p-5 flex flex-col gap-3"
               >
+                <div className="flex items-center gap-4 flex-wrap">
                 <div
                   className="h-11 w-11 rounded-lg flex items-center justify-center shrink-0 overflow-hidden bg-secondary/60"
                   style={{ background: it.connector_primary_color ? `#${it.connector_primary_color}` : undefined }}
@@ -285,12 +341,20 @@ const Conexoes = () => {
                     <h3 className="text-base font-semibold text-foreground">
                       {it.connector_name}
                     </h3>
-                    {isOk && (
+                    {isOk && !isPartial && (
                       <Badge
                         variant="outline"
                         className="border-success/40 text-success bg-success/10"
                       >
                         <CheckCircle2 className="h-3 w-3 mr-1" /> Conectado
+                      </Badge>
+                    )}
+                    {isPartial && (
+                      <Badge
+                        variant="outline"
+                        className="border-warning/40 text-warning bg-warning/10"
+                      >
+                        <AlertTriangle className="h-3 w-3 mr-1" /> Sincronização parcial
                       </Badge>
                     )}
                     {isReauth && (
@@ -301,7 +365,7 @@ const Conexoes = () => {
                         <AlertTriangle className="h-3 w-3 mr-1" /> Reautenticar
                       </Badge>
                     )}
-                    {!isOk && !isReauth && (
+                    {!isOk && !isReauth && !isPartial && (
                       <Badge variant="outline" className="border-border bg-secondary/50">
                         {it.status}
                       </Badge>
@@ -313,6 +377,22 @@ const Conexoes = () => {
                   </p>
                 </div>
                 <div className="flex items-center gap-2 ml-auto">
+                  {isPartial && !isRateLimited && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => reconnectItem(it.pluggy_item_id)}
+                      disabled={reconnectingItemId === it.pluggy_item_id}
+                      className="border-warning/40 text-warning hover:bg-warning/10"
+                    >
+                      {reconnectingItemId === it.pluggy_item_id ? (
+                        <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                      )}
+                      Reconectar
+                    </Button>
+                  )}
                   <DisconnectButton
                     itemId={it.pluggy_item_id}
                     connectorName={it.connector_name}
@@ -320,6 +400,36 @@ const Conexoes = () => {
                     onRemoved={loadItems}
                   />
                 </div>
+                </div>
+                {isPartial && (
+                  <div className="rounded-md bg-warning/5 border border-warning/30 p-3 flex items-start gap-2.5">
+                    <AlertTriangle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
+                    <div className="text-xs text-foreground leading-relaxed">
+                      <p className="font-medium">
+                        {isRateLimited
+                          ? "Limite mensal do Open Finance atingido neste banco"
+                          : "Alguns dados não foram retornados pelo banco nesta sincronização."}
+                      </p>
+                      {it.last_sync_warning && (
+                        <p className="mt-1 text-muted-foreground">{it.last_sync_warning}</p>
+                      )}
+                      {isRateLimited ? (
+                        <p className="mt-1.5 text-muted-foreground">
+                          O Banco Central define quotas mensais por CPF/instituição no Open Finance. O acesso
+                          ao <strong>extrato e saldos da conta corrente</strong> volta automaticamente no
+                          início do próximo mês — você não precisa reconectar. Cartões, faturas e demais
+                          dados continuam atualizando normalmente.
+                        </p>
+                      ) : (
+                        <p className="mt-1.5 text-muted-foreground">
+                          Clique em <strong>Reconectar</strong> e, no widget do banco, autorize todos os
+                          produtos disponíveis (extrato, cartões, identidade) para liberar a visualização
+                          completa.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
               </Card>
             );
           })}

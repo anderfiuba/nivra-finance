@@ -443,11 +443,15 @@ Deno.serve(async (req) => {
     }
 
     // 4. Atualiza status do item
+    const statusDetail = (itemData as { statusDetail?: Record<string, unknown> | null })?.statusDetail ?? null;
+    const lastSyncWarning = buildSyncWarning(statusDetail, accounts);
     await adminClient
       .from("pluggy_items")
       .update({
         status: itemData.status ?? null,
         execution_status: itemData.executionStatus ?? null,
+        status_detail: statusDetail,
+        last_sync_warning: lastSyncWarning,
         last_synced_at: new Date().toISOString(),
       })
       .eq("pluggy_item_id", body.itemId)
@@ -470,6 +474,59 @@ Deno.serve(async (req) => {
     });
   }
 });
+
+// Constrói uma mensagem curta e legível sobre o que faltou na última
+// sincronização. Usa primeiro `statusDetail` (Pluggy detalha por produto:
+// accounts, transactions, creditCards, identity, paymentData, investments,
+// loans, opportunities) e, como fallback, sinaliza contas BANK que não
+// receberam transações na pull desta execução.
+// deno-lint-ignore no-explicit-any
+function buildSyncWarning(statusDetail: any, accounts: PluggyAccount[]): string | null {
+  const issues: string[] = [];
+
+  if (statusDetail && typeof statusDetail === "object") {
+    const productLabels: Record<string, string> = {
+      accounts: "Saldos da conta",
+      transactions: "Extrato da conta corrente",
+      creditCards: "Cartões de crédito",
+      identity: "Dados cadastrais",
+      paymentData: "Dados de pagamento",
+      investments: "Investimentos",
+      loans: "Empréstimos",
+      opportunities: "Oportunidades",
+    };
+    for (const [key, label] of Object.entries(productLabels)) {
+      const node = (statusDetail as Record<string, unknown>)[key] as
+        | { isUpdated?: boolean; warnings?: Array<{ message?: string }> | null }
+        | null
+        | undefined;
+      if (!node) continue;
+      if (node.isUpdated === false) {
+        // Identifica rate limit do Open Finance — mensagem específica e
+        // acionável (esperar reset mensal, não reconectar).
+        const warn = Array.isArray(node.warnings) ? node.warnings[0]?.message ?? "" : "";
+        if (/rate\s*limit|operational\s*limit/i.test(warn)) {
+          issues.push(
+            `${label}: limite mensal do Open Finance atingido pelo banco para o seu CPF nesta instituição (reseta no início do próximo mês)`,
+          );
+        } else if (warn) {
+          issues.push(`${label} não atualizado: ${warn}`);
+        } else {
+          issues.push(`${label} não foi atualizado nesta sincronização`);
+        }
+      }
+    }
+  }
+
+  // Se temos contas BANK mas a Pluggy declarou transactions OK e ainda assim
+  // não veio nenhuma transação, isso já será detectado em runtime no client.
+  // Aqui só registramos sinais explícitos vindos do upstream.
+
+  if (issues.length === 0) return null;
+  // Limita a 240 chars para caber em badges/tooltips.
+  const joined = issues.join("; ");
+  return joined.length > 240 ? joined.slice(0, 237) + "…" : joined;
+}
 
 // deno-lint-ignore no-explicit-any
 async function markPaidBillsByInference(
