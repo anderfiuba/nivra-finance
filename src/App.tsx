@@ -18,6 +18,7 @@ import Configuracoes from "./pages/app/Configuracoes.tsx";
 import Planos from "./pages/app/Planos.tsx";
 import Categorizacao from "./pages/app/Categorizacao.tsx";
 import Faturas from "./pages/app/Faturas.tsx";
+import Disponivel from "./pages/app/Disponivel.tsx";
 import { FinanceProvider } from "./contexts/FinanceContext";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
@@ -52,6 +53,7 @@ const App = () => (
               <Route index element={<Dashboard />} />
               <Route path="contas" element={<Contas />} />
               <Route path="extrato" element={<Extrato />} />
+              <Route path="disponivel" element={<Disponivel />} />
               <Route path="categorizacao" element={<Categorizacao />} />
               <Route path="faturas" element={<Faturas />} />
               <Route path="conexoes" element={<Conexoes />} />
