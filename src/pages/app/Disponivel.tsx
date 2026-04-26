@@ -1,14 +1,11 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Card } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { Wallet, ArrowRight } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { useFinance } from "@/contexts/FinanceContext";
-import { formatBRL } from "@/lib/format";
-import { cn } from "@/lib/utils";
 import { CategoryBudgetCard } from "@/components/disponivel/CategoryBudgetCard";
 import { CategorySheet } from "@/components/disponivel/CategorySheet";
 import { TotalBudgetCard } from "@/components/disponivel/TotalBudgetCard";
@@ -66,15 +63,6 @@ const Disponivel = () => {
   // Agregados do CICLO inteiro (todas as categorias, com ou sem orçamento).
   const cycleAgg = useMemo(() => cycleCategoryAggregates(cycleKey), [cycleCategoryAggregates, cycleKey]);
 
-  // Totais para o card hero (apenas categorias com orçamento).
-  const totals = useMemo(() => {
-    const limit = budgetProgress.reduce((s, b) => s + b.limit, 0);
-    const spent = budgetProgress.reduce((s, b) => s + b.spent, 0);
-    const available = limit - spent;
-    const ratio = limit > 0 ? Math.min(1, spent / limit) : 0;
-    return { limit, spent, available, ratio };
-  }, [budgetProgress]);
-
   // Ordena: estouro primeiro, depois alerta, depois ok (por ratio decrescente).
   const sortedBudgets = useMemo(() => {
     const order: Record<string, number> = { over: 0, alert: 1, ok: 2 };
@@ -125,7 +113,6 @@ const Disponivel = () => {
   }, [categories, budgetProgress, unbudgeted]);
 
   const isEmpty = budgetProgress.length === 0;
-  const availablePositive = totals.available >= 0;
 
   return (
     <div
@@ -145,8 +132,8 @@ const Disponivel = () => {
       {/* Limite total — sempre visível (define ou edita). */}
       <TotalBudgetCard spent={cycleAgg.total} />
 
-      {/* Hero: número grande */}
-      {isEmpty ? (
+      {/* Estado vazio: convite para criar primeiro orçamento por categoria. */}
+      {isEmpty && (
         <Card className="bg-gradient-card border-border p-6 text-center space-y-4">
           <div className="mx-auto h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
             <Wallet className="h-6 w-6 text-primary" />
@@ -172,35 +159,6 @@ const Disponivel = () => {
               ))}
             </div>
           )}
-        </Card>
-      ) : (
-        <Card className="bg-gradient-card border-border p-5 md:p-6">
-          <p className="text-xs text-muted-foreground">Disponível este mês</p>
-          <p
-            className={cn(
-              "text-4xl md:text-5xl font-bold tracking-tight tabular-nums mt-1",
-              availablePositive ? "text-foreground" : "text-destructive",
-            )}
-          >
-            {formatBRL(totals.available)}
-          </p>
-          <div className="mt-4 space-y-2">
-            <Progress
-              value={totals.ratio * 100}
-              className={cn(
-                "h-2",
-                totals.ratio >= 1
-                  ? "[&>div]:bg-destructive"
-                  : totals.ratio >= 0.8
-                    ? "[&>div]:bg-warning"
-                    : "[&>div]:bg-success",
-              )}
-            />
-            <div className="flex items-center justify-between text-[11px] text-muted-foreground tabular-nums">
-              <span>{formatBRL(totals.spent)} gastos</span>
-              <span>{formatBRL(totals.limit)} orçados</span>
-            </div>
-          </div>
         </Card>
       )}
 
