@@ -436,7 +436,7 @@ const Categorizacao = () => {
                         </div>
 
                         <CollapsibleContent>
-                          <div className="mt-3 ml-7 space-y-2 border-l border-border pl-4">
+                          <div className="mt-3 ml-2 md:ml-7 space-y-3 md:space-y-2 border-l border-border pl-3 md:pl-4">
                             {item.children.map((c) => {
                               const childBudget = budgetByChildKey.get(`${item.parentLabel}::${c.label}`);
                               const cRatio = childBudget && childBudget.monthlyLimit > 0
