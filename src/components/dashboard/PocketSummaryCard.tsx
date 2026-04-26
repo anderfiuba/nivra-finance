@@ -67,7 +67,7 @@ export function PocketSummaryCard() {
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-foreground">Quanto posso gastar?</p>
           <p className="text-xs text-muted-foreground">
-            Defina um limite mensal pra ver aqui o saldo disponível.
+            Defina um limite do seu ciclo financeiro pra ver aqui o saldo disponível.
           </p>
         </div>
         <Button asChild size="sm" className="shrink-0">
