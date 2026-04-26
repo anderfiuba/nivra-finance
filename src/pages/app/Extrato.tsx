@@ -15,7 +15,7 @@ import { TransactionRow } from "@/components/extrato/TransactionRow";
 const PAGE_INCREMENT = 100;
 
 const Extrato = () => {
-  const { transactions, categories, updateCategory } = useFinance();
+  const { transactions, categories, updateCategory, accounts } = useFinance();
   const [searchParams, setSearchParams] = useSearchParams();
   const [monthKey, setMonthKey] = useState<string>(() => currentMonthBucket().key);
   const [search, setSearch] = useState("");
@@ -57,6 +57,17 @@ const Extrato = () => {
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [categories]);
 
+  // Mapa: nome amigável da conta → URL do logo do banco (vindo do connector).
+  // Usa o mesmo "name" que o TransactionRow recebe em `tx.account`.
+  const accountLogoByName = useMemo(() => {
+    const m = new Map<string, string | null>();
+    for (const a of accounts) {
+      const key = a.marketingName || a.name;
+      if (key && !m.has(key)) m.set(key, a.connectorImageUrl);
+    }
+    return m;
+  }, [accounts]);
+
   // Transações do mês selecionado (sem outros filtros) — base para o resumo.
   const monthTransactions = useMemo(
     () => transactions.filter((t) => monthKeyOf(t.date) === monthKey),
@@ -83,6 +94,17 @@ const Extrato = () => {
       return true;
     });
   }, [monthTransactions, search, account, category]);
+
+  // Totais já considerando o filtro aplicado (busca/conta/categoria).
+  const filteredTotals = useMemo(() => {
+    let entradas = 0;
+    let saidas = 0;
+    for (const t of filtered) {
+      if (t.type === "entrada") entradas += t.value;
+      else saidas += t.value;
+    }
+    return { count: filtered.length, entradas, saidas };
+  }, [filtered]);
 
   const visible = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
 
@@ -117,9 +139,9 @@ const Extrato = () => {
           <MonthSelector months={months} value={monthKey} onChange={handleMonthChange} />
         </div>
         <MonthSummaryCard
-          count={monthTotals.count}
-          entradas={monthTotals.entradas}
-          saidas={monthTotals.saidas}
+          count={filteredTotals.count}
+          entradas={filteredTotals.entradas}
+          saidas={filteredTotals.saidas}
         />
       </div>
 
@@ -176,6 +198,7 @@ const Extrato = () => {
                 tx={t}
                 parentCategories={parentCategories}
                 onChangeCategory={handleChangeCategory}
+                accountLogoUrl={accountLogoByName.get(t.account) ?? null}
               />
             ))
           )}
