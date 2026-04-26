@@ -192,27 +192,13 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
   if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "method_not_allowed" }), {
-      status: 405,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return errorResponse("method_not_allowed");
   }
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const body = (await req.json().catch(() => ({}))) as { itemId?: string; source?: string };
+    const body = (await req.json().catch(() => ({}))) as { itemId?: string };
     if (!body.itemId) {
-      return new Response(JSON.stringify({ error: "itemId_required" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return errorResponse("bad_request", { message: "itemId é obrigatório." });
     }
 
     // Cliente service role para upsert + ler settings.
@@ -221,64 +207,63 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // Self-heal: garante que app_settings.service_key esteja correta para o cron.
-    // Roda barato: só faz upsert se diferente.
-    try {
-      const { data: settingRow } = await adminClient
-        .from("app_settings")
-        .select("value")
-        .eq("key", "service_key")
-        .maybeSingle();
-      const currentKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-      if (currentKey && (!settingRow || settingRow.value !== currentKey)) {
-        await adminClient.from("app_settings").upsert(
-          { key: "service_key", value: currentKey, updated_at: new Date().toISOString() },
-          { onConflict: "key" },
-        );
-      }
-    } catch (e) {
-      console.warn("app_settings self-heal skipped", e);
-    }
+    // ===== Autenticação (caminhos mutuamente exclusivos) =====
+    const cronSecretHeader = req.headers.get("X-Cron-Secret");
+    const cronSecretEnv = Deno.env.get("CRON_SHARED_SECRET");
+    const isCronCall =
+      typeof cronSecretHeader === "string"
+      && cronSecretHeader.length > 0
+      && typeof cronSecretEnv === "string"
+      && cronSecretEnv.length > 0
+      && cronSecretHeader === cronSecretEnv;
 
-    // Resolve user_id do item (suporta caller via user JWT OU cron via service role).
     let userId: string | null = null;
-    if (body.source !== "cron") {
-      // Fluxo interativo: valida JWT do usuário e confirma posse via RLS.
-      const userClient = createClient(
-        Deno.env.get("SUPABASE_URL")!,
-        Deno.env.get("SUPABASE_ANON_KEY")!,
-        { global: { headers: { Authorization: authHeader } } },
-      );
-      const { data: userData, error: userError } = await userClient.auth.getUser();
-      if (!userError && userData.user) {
-        userId = userData.user.id;
-        const { data: ownItem } = await userClient
-          .from("pluggy_items")
-          .select("pluggy_item_id")
-          .eq("pluggy_item_id", body.itemId)
-          .maybeSingle();
-        if (!ownItem) {
-          return new Response(JSON.stringify({ error: "item_not_found_or_forbidden" }), {
-            status: 403,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
-      }
-    }
-    if (!userId) {
-      // Caller cron (ou fallback): resolve user_id direto na tabela via service role.
+
+    if (isCronCall) {
+      // Cron interno: resolve user_id do item via service role.
       const { data: itemRow, error: itemRowErr } = await adminClient
         .from("pluggy_items")
         .select("user_id")
         .eq("pluggy_item_id", body.itemId)
         .maybeSingle();
       if (itemRowErr || !itemRow) {
-        return new Response(JSON.stringify({ error: "item_not_found" }), {
-          status: 404,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        return errorResponse("not_found", {
+          logContext: "cron sync: item not found",
+          logDetails: { itemId: body.itemId, err: itemRowErr?.message },
         });
       }
       userId = itemRow.user_id as string;
+    } else {
+      // Caller usuário: exige JWT válido. Sem fallback.
+      const authHeader = req.headers.get("Authorization");
+      if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        return errorResponse("unauthorized");
+      }
+      const userClient = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_ANON_KEY")!,
+        { global: { headers: { Authorization: authHeader } } },
+      );
+      const { data: userData, error: userError } = await userClient.auth.getUser();
+      if (userError || !userData.user) {
+        return errorResponse("unauthorized", {
+          logContext: "user JWT inválido",
+          logDetails: userError?.message,
+        });
+      }
+      userId = userData.user.id;
+      // Posse do item via RLS — bloqueia cross-tenant.
+      const { data: ownItem } = await userClient
+        .from("pluggy_items")
+        .select("pluggy_item_id")
+        .eq("pluggy_item_id", body.itemId)
+        .maybeSingle();
+      if (!ownItem) {
+        return errorResponse("forbidden", {
+          logContext: "user tentou acessar item de outro user",
+          logDetails: { userId, itemId: body.itemId },
+        });
+      }
     }
 
     // 1. Atualiza status do item
