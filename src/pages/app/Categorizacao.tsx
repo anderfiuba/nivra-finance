@@ -16,13 +16,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertTriangle,
   ChevronRight,
   PencilLine,
   Plus,
-  Tags,
   Trash2,
   Wallet,
 } from "lucide-react";
@@ -30,11 +28,23 @@ import { useFinance } from "@/contexts/FinanceContext";
 import { formatBRL } from "@/lib/format";
 import { MonthSelector } from "@/components/extrato/MonthSelector";
 import { CycleDaySettingsButton } from "@/components/CycleDaySettingsButton";
+import { DEFAULT_PARENT_CATEGORIES } from "@/lib/defaultCategories";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-type BudgetScope = "parent" | "child";
-
+/**
+ * Página Categorias.
+ *
+ * Regras:
+ * - Trabalhamos APENAS com categorias-pai. Subcategorias servem só para
+ *   consultar detalhes (expandir e ver gastos por subcategoria).
+ * - As 7 categorias padrão (Alimentos e bebidas, Lazer, Moradia, Saúde,
+ *   Serviços, Transporte, Viagens) ficam sempre visíveis em ordem alfabética,
+ *   mesmo sem gasto.
+ * - Demais categorias do catálogo aparecem via toggle.
+ * - O limite total do mês (definido em "Quanto posso gastar?") atua como teto
+ *   da soma dos limites por categoria.
+ */
 const Categorizacao = () => {
   const {
     categories,
@@ -48,10 +58,8 @@ const Categorizacao = () => {
   } = useFinance();
 
   // ---------- estado ----------
-  // Trabalhamos com CICLOS FINANCEIROS do usuário (não meses civis).
   const cycles = useMemo(() => lastCycles(12), [lastCycles]);
   const [monthKey, setMonthKey] = useState<string>(cycles[0]?.key ?? "");
-  // Mantém selecionado um ciclo válido se cycleDay mudar.
   useEffect(() => {
     if (cycles[0] && !cycles.some((c) => c.key === monthKey)) {
       setMonthKey(cycles[0].key);
@@ -59,13 +67,11 @@ const Categorizacao = () => {
   }, [cycles, monthKey]);
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [showAllCategories, setShowAllCategories] = useState(false);
+  const [showOthers, setShowOthers] = useState(false);
 
-  // dialog
+  // dialog (somente categoria-pai)
   const [dlgOpen, setDlgOpen] = useState(false);
-  const [dlgScope, setDlgScope] = useState<BudgetScope>("parent");
-  const [dlgParentLabel, setDlgParentLabel] = useState<string>(""); // pai do orçamento (quando child) OU rótulo do próprio (parent)
-  const [dlgChildLabel, setDlgChildLabel] = useState<string>("");
+  const [dlgParentLabel, setDlgParentLabel] = useState<string>("");
   const [dlgLimit, setDlgLimit] = useState<string>("");
   const [dlgThreshold, setDlgThreshold] = useState<number>(80);
   const [dlgEditingId, setDlgEditingId] = useState<string | null>(null);
@@ -78,70 +84,51 @@ const Categorizacao = () => {
     [cycles, monthKey],
   );
 
-  const parentCategoryLabels = useMemo(() => {
-    return categories
-      .filter((c) => c.parentId === null)
-      .map((c) => c.descriptionTranslated ?? c.description)
-      .sort((a, b) => a.localeCompare(b));
+  // Catálogo: todos os labels de categorias-pai PT-BR, em ordem alfabética.
+  const allCatalogParents = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of categories) {
+      if (c.parentId !== null) continue;
+      const label = (c.descriptionTranslated || c.description || "").trim();
+      if (!label) continue;
+      if (/^Transfer/i.test(label) || /transfer/i.test(label)) continue;
+      if (/cart[aã]o de cr[eé]dito|credit card payment/i.test(label)) continue;
+      set.add(label);
+    }
+    for (const def of DEFAULT_PARENT_CATEGORIES) set.add(def);
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
   }, [categories]);
 
-  // Mapa: rótulo da categoria pai → lista de rótulos de subcategorias (filhas) do catálogo Pluggy.
-  // Usado para popular o Select de subcategoria no diálogo de orçamento, evitando erros de digitação.
-  const childLabelsByParentLabel = useMemo(() => {
-    const parentIdToLabel = new Map<string, string>();
-    for (const c of categories) {
-      if (c.parentId === null) {
-        parentIdToLabel.set(c.id, c.descriptionTranslated ?? c.description);
-      }
-    }
-    const map = new Map<string, string[]>();
-    for (const c of categories) {
-      if (!c.parentId) continue;
-      const parentLabel = parentIdToLabel.get(c.parentId);
-      if (!parentLabel) continue;
-      const childLabel = c.descriptionTranslated ?? c.description;
-      const arr = map.get(parentLabel) ?? [];
-      arr.push(childLabel);
-      map.set(parentLabel, arr);
-    }
-    for (const [k, arr] of map) {
-      map.set(k, Array.from(new Set(arr)).sort((a, b) => a.localeCompare(b)));
-    }
-    return map;
-  }, [categories]);
-
-  // Subcategorias disponíveis para o pai selecionado no diálogo. Inclui também quaisquer
-  // rótulos de filhas que apareceram nas transações do mês mas não estão no catálogo.
-  const dlgChildOptions = useMemo(() => {
-    if (!dlgParentLabel) return [] as string[];
-    const fromCatalog = childLabelsByParentLabel.get(dlgParentLabel) ?? [];
-    const fromMonth = (monthly.items.find((i) => i.parentLabel === dlgParentLabel)?.children ?? []).map(
-      (c) => c.label,
-    );
-    return Array.from(new Set([...fromCatalog, ...fromMonth])).sort((a, b) => a.localeCompare(b));
-  }, [childLabelsByParentLabel, monthly.items, dlgParentLabel]);
-
-  // Mapas auxiliares para encontrar orçamento por (parent | parent::child)
   const budgetByParent = useMemo(() => {
     const m = new Map<string, typeof categoryBudgets[number]>();
     for (const b of categoryBudgets) if (b.scope === "parent") m.set(b.categoryLabel, b);
     return m;
   }, [categoryBudgets]);
-  const budgetByChildKey = useMemo(() => {
-    const m = new Map<string, typeof categoryBudgets[number]>();
-    for (const b of categoryBudgets) {
-      if (b.scope === "child" && b.parentCategoryLabel) {
-        m.set(`${b.parentCategoryLabel}::${b.categoryLabel}`, b);
-      }
-    }
-    return m;
-  }, [categoryBudgets]);
 
-  // ---------- abrir/fechar dialog ----------
-  const openNewBudget = (scope: BudgetScope, parentLabel: string, childLabel?: string) => {
-    setDlgScope(scope);
+  const aggByParent = useMemo(() => {
+    const m = new Map<string, typeof monthly.items[number]>();
+    for (const it of monthly.items) m.set(it.parentLabel, it);
+    return m;
+  }, [monthly.items]);
+
+  // Linhas SEMPRE visíveis: 7 padrão + qualquer outra que tenha gasto neste ciclo
+  // OU que tenha orçamento definido. Tudo em ordem alfabética.
+  const primaryLabels = useMemo(() => {
+    const set = new Set<string>(DEFAULT_PARENT_CATEGORIES);
+    for (const it of monthly.items) set.add(it.parentLabel);
+    for (const b of categoryBudgets) if (b.scope === "parent") set.add(b.categoryLabel);
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [monthly.items, categoryBudgets]);
+
+  // Categorias EXTRAS do catálogo (visíveis só com toggle).
+  const extraLabels = useMemo(
+    () => allCatalogParents.filter((l) => !primaryLabels.includes(l)),
+    [allCatalogParents, primaryLabels],
+  );
+
+  // ---------- dialog handlers ----------
+  const openNewBudget = (parentLabel: string) => {
     setDlgParentLabel(parentLabel);
-    setDlgChildLabel(childLabel ?? "");
     setDlgLimit("");
     setDlgThreshold(80);
     setDlgEditingId(null);
@@ -152,14 +139,7 @@ const Categorizacao = () => {
   const openEditBudget = (budgetId: string) => {
     const b = categoryBudgets.find((x) => x.id === budgetId);
     if (!b) return;
-    setDlgScope(b.scope);
-    if (b.scope === "child") {
-      setDlgParentLabel(b.parentCategoryLabel ?? "");
-      setDlgChildLabel(b.categoryLabel);
-    } else {
-      setDlgParentLabel(b.categoryLabel);
-      setDlgChildLabel("");
-    }
+    setDlgParentLabel(b.categoryLabel);
     setDlgLimit(String(b.monthlyLimit));
     setDlgThreshold(Math.round(b.alertThreshold * 100));
     setDlgEditingId(b.id);
@@ -167,50 +147,13 @@ const Categorizacao = () => {
     setDlgOpen(true);
   };
 
-  // ---------- validação hierárquica ----------
-  const validateBudget = (
-    scope: BudgetScope,
-    parentLabel: string,
-    childLabel: string,
-    limit: number,
-  ): string | null => {
-    if (scope === "child") {
-      if (!parentLabel) return "Escolha a categoria principal.";
-      if (!childLabel) return "Escolha a subcategoria.";
-      const parentBudget = budgetByParent.get(parentLabel);
-      // soma das outras filhas do mesmo pai (excluindo a edição atual)
-      let siblingSum = 0;
-      for (const b of categoryBudgets) {
-        if (b.scope !== "child") continue;
-        if (b.parentCategoryLabel !== parentLabel) continue;
-        if (b.id === dlgEditingId) continue;
-        if (b.categoryLabel === childLabel && !dlgEditingId) continue; // novo cobre o existente
-        siblingSum += b.monthlyLimit;
-      }
-      if (parentBudget && siblingSum + limit > parentBudget.monthlyLimit + 0.001) {
-        return `O limite total das subcategorias (${formatBRL(siblingSum + limit)}) não pode passar do limite da categoria "${parentLabel}" (${formatBRL(parentBudget.monthlyLimit)}).`;
-      }
-      return null;
-    }
-    // scope === "parent"
+  // ---------- validação ----------
+  const validateBudget = (parentLabel: string, limit: number): string | null => {
     if (!parentLabel) return "Escolha a categoria.";
-    let childrenSum = 0;
-    for (const b of categoryBudgets) {
-      if (b.scope === "child" && b.parentCategoryLabel === parentLabel) {
-        childrenSum += b.monthlyLimit;
-      }
-    }
-    if (childrenSum > 0 && limit < childrenSum - 0.001) {
-      return `O limite da categoria principal precisa ser pelo menos ${formatBRL(childrenSum)} (soma das subcategorias já definidas).`;
-    }
-    // Valida contra o limite TOTAL definido pelo usuário, se houver.
     if (totalBudget) {
-      const previousLimit =
-        dlgEditingId
-          ? categoryBudgets.find(
-              (b) => b.id === dlgEditingId && b.scope === "parent",
-            )?.monthlyLimit ?? 0
-          : 0;
+      const previousLimit = dlgEditingId
+        ? categoryBudgets.find((b) => b.id === dlgEditingId && b.scope === "parent")?.monthlyLimit ?? 0
+        : 0;
       const projectedSum = parentBudgetsSum - previousLimit + limit;
       if (projectedSum > totalBudget.monthlyLimit + 0.001) {
         return `A soma dos limites por categoria (${formatBRL(projectedSum)}) ficaria acima do limite total do mês (${formatBRL(totalBudget.monthlyLimit)}). Aumente o limite total ou reduza este valor.`;
@@ -225,14 +168,12 @@ const Categorizacao = () => {
       setDlgError("Informe um limite válido.");
       return;
     }
-    const err = validateBudget(dlgScope, dlgParentLabel, dlgChildLabel, limit);
+    const err = validateBudget(dlgParentLabel, limit);
     if (err) {
       setDlgError(err);
       return;
     }
-    const label = dlgScope === "child" ? dlgChildLabel : dlgParentLabel;
-    const parentRef = dlgScope === "child" ? dlgParentLabel : null;
-    await upsertBudget(label, limit, dlgThreshold / 100, dlgScope, parentRef);
+    await upsertBudget(dlgParentLabel, limit, dlgThreshold / 100, "parent", null);
     setDlgOpen(false);
     toast.success("Orçamento salvo.");
   };
@@ -242,23 +183,184 @@ const Categorizacao = () => {
     toast.success("Orçamento removido.");
   };
 
-  // Reset expanded ao trocar de mês para evitar estados órfãos
   useEffect(() => {
     setExpanded({});
   }, [monthKey]);
 
-  // Categorias-pai do catálogo Pluggy que NÃO tiveram gasto no mês selecionado.
-  // Usadas quando o usuário ativa "Mostrar categorias sem gasto neste mês".
-  const parentsWithoutSpend = useMemo(() => {
-    const labelsWithSpend = new Set(monthly.items.map((i) => i.parentLabel));
-    return parentCategoryLabels.filter((label) => {
-      if (labelsWithSpend.has(label)) return false;
-      // filtra transferências e pagamento de cartão
-      if (/^Transfer/i.test(label) || /transfer/i.test(label)) return false;
-      if (/cart[aã]o de cr[eé]dito|credit card payment/i.test(label)) return false;
-      return true;
-    });
-  }, [parentCategoryLabels, monthly.items]);
+  // ---------- renderização de uma linha de categoria-pai ----------
+  const renderRow = (label: string) => {
+    const item = aggByParent.get(label);
+    const spent = item?.spent ?? 0;
+    const children = item?.children ?? [];
+    const parentBudget = budgetByParent.get(label);
+    const ratio = parentBudget && parentBudget.monthlyLimit > 0 ? spent / parentBudget.monthlyLimit : 0;
+    const status: "ok" | "alert" | "over" = !parentBudget
+      ? "ok"
+      : ratio >= 1
+        ? "over"
+        : ratio >= parentBudget.alertThreshold
+          ? "alert"
+          : "ok";
+    const visualPct = parentBudget
+      ? Math.min(100, ratio * 100)
+      : Math.round((item?.pctOfTotal ?? 0) * 100);
+    const barTone = !parentBudget
+      ? "[&>div]:bg-primary/40"
+      : status === "over"
+        ? "[&>div]:bg-destructive"
+        : status === "alert"
+          ? "[&>div]:bg-warning"
+          : "[&>div]:bg-primary";
+    const isOpen = !!expanded[label];
+    const hasChildren = children.length > 0;
+
+    return (
+      <Collapsible
+        key={label}
+        className="border border-none border-secondary"
+        open={isOpen}
+        onOpenChange={(o) => setExpanded((p) => ({ ...p, [label]: o }))}
+      >
+        <div className="p-3.5 md:p-5 space-y-3 rounded-lg bg-card/40 md:rounded-none md:border-0 md:bg-transparent py-[25px] mx-[5px] px-[25px] border-primary border">
+          <div className="flex items-start gap-2 md:gap-3">
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="flex items-start gap-2 md:gap-3 flex-1 min-w-0 text-left group"
+                aria-label={`Expandir ${label}`}
+                disabled={!hasChildren}
+              >
+                <ChevronRight
+                  className={cn(
+                    "h-4 w-4 mt-1 shrink-0 text-muted-foreground transition-transform",
+                    isOpen && "rotate-90",
+                    !hasChildren && "opacity-0",
+                  )}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-medium text-foreground truncate group-hover:underline">
+                      {label}
+                    </p>
+                    {parentBudget && (
+                      <Badge variant="outline" className="text-[10px] h-5 border-border bg-secondary/40">
+                        Limite {formatBRL(parentBudget.monthlyLimit)}
+                      </Badge>
+                    )}
+                    {status === "over" && (
+                      <Badge variant="outline" className="text-[10px] h-5 border-destructive/30 bg-destructive/10 text-destructive">
+                        <AlertTriangle className="h-3 w-3 mr-1" /> Estourou
+                      </Badge>
+                    )}
+                    {status === "alert" && (
+                      <Badge variant="outline" className="text-[10px] h-5 border-warning/30 bg-warning/10 text-warning">
+                        <AlertTriangle className="h-3 w-3 mr-1" /> Próximo do limite
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5 tabular-nums">
+                    {parentBudget
+                      ? `${formatBRL(spent)} de ${formatBRL(parentBudget.monthlyLimit)} · ${(ratio * 100).toFixed(0)}%`
+                      : spent > 0
+                        ? `${((item?.pctOfTotal ?? 0) * 100).toFixed(0)}% do total do mês`
+                        : "Sem gastos neste mês"}
+                  </p>
+                </div>
+              </button>
+            </CollapsibleTrigger>
+            <div className="text-right shrink-0">
+              <p className="text-sm font-semibold tabular-nums text-foreground whitespace-nowrap">
+                {formatBRL(spent)}
+              </p>
+              <div className="mt-1 hidden md:flex items-center gap-1 justify-end">
+                {parentBudget ? (
+                  <>
+                    <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => openEditBudget(parentBudget.id)}>
+                      <PencilLine className="h-3 w-3 mr-1" /> Editar
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                      onClick={() => removeBudget(parentBudget.id)}
+                      aria-label="Remover orçamento"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    onClick={() => openNewBudget(label)}
+                  >
+                    <Plus className="h-3 w-3 mr-1" /> Limite
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+          <Progress value={visualPct} className={`h-1.5 ${barTone}`} />
+          {/* Ações em telas pequenas */}
+          <div className="flex md:hidden items-center gap-1 justify-end">
+            {parentBudget ? (
+              <>
+                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => openEditBudget(parentBudget.id)}>
+                  <PencilLine className="h-3 w-3 mr-1" /> Editar limite
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                  onClick={() => removeBudget(parentBudget.id)}
+                  aria-label="Remover orçamento"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                onClick={() => openNewBudget(label)}
+              >
+                <Plus className="h-3 w-3 mr-1" /> Definir limite
+              </Button>
+            )}
+          </div>
+
+          {/* Subcategorias — APENAS PARA CONSULTA (sem ação de orçamento) */}
+          {hasChildren && (
+            <CollapsibleContent>
+              <div className="mt-3 ml-2 md:ml-7 space-y-3 md:space-y-2 border-l border-border pl-3 md:pl-4">
+                {children.map((c) => {
+                  const cVisual = Math.round(c.pctOfParent * 100);
+                  return (
+                    <div key={c.label} className="py-1.5">
+                      <div className="flex items-start gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-medium text-foreground truncate">{c.label}</p>
+                          <p className="text-[11px] text-muted-foreground mt-0.5 tabular-nums">
+                            {(c.pctOfParent * 100).toFixed(0)}% de {label}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-xs font-semibold tabular-nums text-foreground">{formatBRL(c.spent)}</p>
+                        </div>
+                      </div>
+                      <Progress value={cVisual} className="h-1 mt-1.5 [&>div]:bg-muted-foreground/30" />
+                    </div>
+                  );
+                })}
+              </div>
+            </CollapsibleContent>
+          )}
+        </div>
+      </Collapsible>
+    );
+  };
 
   // ============== render ==============
   return (
@@ -271,447 +373,80 @@ const Categorizacao = () => {
       </div>
 
       <div className="space-y-4">
-          {/* Header: mês + total */}
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <MonthSelector months={cycles} value={monthKey} onChange={setMonthKey} />
-              <CycleDaySettingsButton />
-            </div>
-            <div className="flex items-center gap-3 text-sm">
-              <Wallet className="h-4 w-4 text-muted-foreground" />
-              <span className="text-muted-foreground">Total gasto:</span>
-              <span className="font-semibold tabular-nums text-foreground">{formatBRL(monthly.total)}</span>
-              <span className="text-muted-foreground">·</span>
-              <span className="text-muted-foreground">
-                {monthly.items.length} {monthly.items.length === 1 ? "categoria" : "categorias"}
-              </span>
-            </div>
+        {/* Header: ciclo + total */}
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <MonthSelector months={cycles} value={monthKey} onChange={setMonthKey} />
+            <CycleDaySettingsButton />
           </div>
+          <div className="flex items-center gap-3 text-sm">
+            <Wallet className="h-4 w-4 text-muted-foreground" />
+            <span className="text-muted-foreground">Total gasto:</span>
+            <span className="font-semibold tabular-nums text-foreground">{formatBRL(monthly.total)}</span>
+            <span className="text-muted-foreground">·</span>
+            <span className="text-muted-foreground">
+              {monthly.items.length} {monthly.items.length === 1 ? "categoria com gasto" : "categorias com gasto"}
+            </span>
+          </div>
+        </div>
 
-          <Card className="bg-gradient-card border-border overflow-hidden">
-            {monthly.items.length === 0 ? (
-              <div className="p-12 text-center">
-                <Tags className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
-                <p className="text-base font-semibold text-foreground">Nenhum gasto registrado em {monthBucket?.longLabel}.</p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Quando uma transação chegar, ela aparece aqui automaticamente.
-                </p>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2 md:gap-0 md:divide-y md:divide-border p-2 md:p-0">
-                {monthly.items.map((item) => {
-                  const isOpen = !!expanded[item.parentLabel];
-                  const parentBudget = budgetByParent.get(item.parentLabel);
-                  const ratio = parentBudget && parentBudget.monthlyLimit > 0
-                    ? item.spent / parentBudget.monthlyLimit
-                    : 0;
-                  const status: "ok" | "alert" | "over" = !parentBudget
-                    ? "ok"
-                    : ratio >= 1
-                      ? "over"
-                      : ratio >= parentBudget.alertThreshold
-                        ? "alert"
-                        : "ok";
-                  // Para visual sem orçamento: barra mostrando % do total
-                  const visualPct = parentBudget
-                    ? Math.min(100, ratio * 100)
-                    : Math.round(item.pctOfTotal * 100);
-                  const barTone = !parentBudget
-                    ? "[&>div]:bg-primary/40"
-                    : status === "over"
-                      ? "[&>div]:bg-destructive"
-                      : status === "alert"
-                        ? "[&>div]:bg-warning"
-                        : "[&>div]:bg-primary";
+        <Card className="bg-gradient-card border-border overflow-hidden">
+          <div className="flex flex-col gap-2 md:gap-0 md:divide-y md:divide-border p-2 md:p-0">
+            {primaryLabels.map((label) => renderRow(label))}
+          </div>
+        </Card>
 
-                  return (
-                    <Collapsible
-                      key={item.parentLabel}
-                      className="border border-none border-secondary"
-                      open={isOpen}
-                      onOpenChange={(o) => setExpanded((p) => ({ ...p, [item.parentLabel]: o }))}
-                    >
-                      <div className="p-3.5 md:p-5 space-y-3 rounded-lg bg-card/40 md:rounded-none md:border-0 md:bg-transparent py-[25px] mx-[5px] px-[25px] border-primary border">
-                        <div className="flex items-start gap-2 md:gap-3">
-                          <CollapsibleTrigger asChild>
-                            <button
-                              type="button"
-                              className="flex items-start gap-2 md:gap-3 flex-1 min-w-0 text-left group"
-                              aria-label={`Expandir ${item.parentLabel}`}
-                            >
-                              <ChevronRight
-                                className={cn(
-                                  "h-4 w-4 mt-1 shrink-0 text-muted-foreground transition-transform",
-                                  isOpen && "rotate-90",
-                                )}
-                              />
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <p className="text-sm font-medium text-foreground truncate group-hover:underline">
-                                    {item.parentLabel}
-                                  </p>
-                                  {parentBudget && (
-                                    <Badge variant="outline" className="text-[10px] h-5 border-border bg-secondary/40">
-                                      Limite {formatBRL(parentBudget.monthlyLimit)}
-                                    </Badge>
-                                  )}
-                                  {status === "over" && (
-                                    <Badge variant="outline" className="text-[10px] h-5 border-destructive/30 bg-destructive/10 text-destructive">
-                                      <AlertTriangle className="h-3 w-3 mr-1" /> Estourou
-                                    </Badge>
-                                  )}
-                                  {status === "alert" && (
-                                    <Badge variant="outline" className="text-[10px] h-5 border-warning/30 bg-warning/10 text-warning">
-                                      <AlertTriangle className="h-3 w-3 mr-1" /> Próximo do limite
-                                    </Badge>
-                                  )}
-                                </div>
-                                <p className="text-xs text-muted-foreground mt-0.5 tabular-nums">
-                                  {parentBudget
-                                    ? `${formatBRL(item.spent)} de ${formatBRL(parentBudget.monthlyLimit)} · ${(ratio * 100).toFixed(0)}%`
-                                    : `${(item.pctOfTotal * 100).toFixed(0)}% do total do mês`}
-                                </p>
-                              </div>
-                            </button>
-                          </CollapsibleTrigger>
-                          <div className="text-right shrink-0">
-                            <p className="text-sm font-semibold tabular-nums text-foreground whitespace-nowrap">
-                              {formatBRL(item.spent)}
-                            </p>
-                            <div className="mt-1 hidden md:flex items-center gap-1 justify-end">
-                              {parentBudget ? (
-                                <>
-                                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => openEditBudget(parentBudget.id)}>
-                                    <PencilLine className="h-3 w-3 mr-1" /> Editar
-                                  </Button>
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                                    onClick={() => removeBudget(parentBudget.id)}
-                                    aria-label="Remover orçamento"
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </Button>
-                                </>
-                              ) : (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-7 text-xs"
-                                  onClick={() => openNewBudget("parent", item.parentLabel)}
-                                >
-                                  <Plus className="h-3 w-3 mr-1" /> Limite
-                                </Button>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        <Progress value={visualPct} className={`h-1.5 ${barTone}`} />
-                        {/* Ações em dispositivos pequenos: ficam abaixo da barra para não apertar o título */}
-                        <div className="flex md:hidden items-center gap-1 justify-end">
-                          {parentBudget ? (
-                            <>
-                              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => openEditBudget(parentBudget.id)}>
-                                <PencilLine className="h-3 w-3 mr-1" /> Editar limite
-                              </Button>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                                onClick={() => removeBudget(parentBudget.id)}
-                                aria-label="Remover orçamento"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
-                            </>
-                          ) : (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 text-xs"
-                              onClick={() => openNewBudget("parent", item.parentLabel)}
-                            >
-                              <Plus className="h-3 w-3 mr-1" /> Definir limite
-                            </Button>
-                          )}
-                        </div>
-
-                        <CollapsibleContent>
-                          <div className="mt-3 ml-2 md:ml-7 space-y-3 md:space-y-2 border-l border-border pl-3 md:pl-4">
-                            {item.children.map((c) => {
-                              const childBudget = budgetByChildKey.get(`${item.parentLabel}::${c.label}`);
-                              const cRatio = childBudget && childBudget.monthlyLimit > 0
-                                ? c.spent / childBudget.monthlyLimit
-                                : 0;
-                              const cStatus: "ok" | "alert" | "over" = !childBudget
-                                ? "ok"
-                                : cRatio >= 1
-                                  ? "over"
-                                  : cRatio >= childBudget.alertThreshold
-                                    ? "alert"
-                                    : "ok";
-                              const cVisual = childBudget
-                                ? Math.min(100, cRatio * 100)
-                                : Math.round(c.pctOfParent * 100);
-                              const cBar = !childBudget
-                                ? "[&>div]:bg-muted-foreground/30"
-                                : cStatus === "over"
-                                  ? "[&>div]:bg-destructive"
-                                  : cStatus === "alert"
-                                    ? "[&>div]:bg-warning"
-                                    : "[&>div]:bg-primary";
-                              return (
-                                <div key={c.label} className="py-1.5">
-                                  <div className="flex items-start gap-3">
-                                    <div className="min-w-0 flex-1">
-                                      <div className="flex items-center gap-2 flex-wrap">
-                                        <p className="text-xs font-medium text-foreground truncate">{c.label}</p>
-                                        {childBudget && (
-                                          <Badge variant="outline" className="text-[10px] h-4 border-border bg-secondary/40">
-                                            Limite {formatBRL(childBudget.monthlyLimit)}
-                                          </Badge>
-                                        )}
-                                        {cStatus === "over" && (
-                                          <Badge variant="outline" className="text-[10px] h-4 border-destructive/30 bg-destructive/10 text-destructive">
-                                            Estourou
-                                          </Badge>
-                                        )}
-                                        {cStatus === "alert" && (
-                                          <Badge variant="outline" className="text-[10px] h-4 border-warning/30 bg-warning/10 text-warning">
-                                            Próximo
-                                          </Badge>
-                                        )}
-                                      </div>
-                                      <p className="text-[11px] text-muted-foreground mt-0.5 tabular-nums">
-                                        {childBudget
-                                          ? `${formatBRL(c.spent)} de ${formatBRL(childBudget.monthlyLimit)} · ${(cRatio * 100).toFixed(0)}%`
-                                          : `${(c.pctOfParent * 100).toFixed(0)}% de ${item.parentLabel}`}
-                                      </p>
-                                    </div>
-                                    <div className="text-right shrink-0">
-                                      <p className="text-xs font-semibold tabular-nums text-foreground">{formatBRL(c.spent)}</p>
-                                      <div className="mt-1 flex items-center gap-1 justify-end">
-                                        {childBudget ? (
-                                          <>
-                                            <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2" onClick={() => openEditBudget(childBudget.id)}>
-                                              <PencilLine className="h-3 w-3 mr-1" /> Editar
-                                            </Button>
-                                            <Button
-                                              size="icon"
-                                              variant="ghost"
-                                              className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                                              onClick={() => removeBudget(childBudget.id)}
-                                              aria-label="Remover orçamento"
-                                            >
-                                              <Trash2 className="h-3 w-3" />
-                                            </Button>
-                                          </>
-                                        ) : (
-                                          <Button
-                                            size="sm"
-                                            variant="ghost"
-                                            className="h-6 text-[10px] px-2"
-                                            onClick={() => openNewBudget("child", item.parentLabel, c.label)}
-                                          >
-                                            <Plus className="h-3 w-3 mr-1" /> Limite
-                                          </Button>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </div>
-                                  <Progress value={cVisual} className={`h-1 mt-1.5 ${cBar}`} />
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </CollapsibleContent>
-                      </div>
-                    </Collapsible>
-                  );
-                })}
-              </div>
-            )}
-          </Card>
-
-          {/* Toggle minimalista + lista de categorias-pai sem gasto no mês */}
-          {parentsWithoutSpend.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3 px-1">
-                <Label
-                  htmlFor="cat-show-all"
-                  className="text-xs text-muted-foreground cursor-pointer select-none"
-                >
-                  Mostrar categorias sem gasto neste mês
-                </Label>
-                <Switch
-                  id="cat-show-all"
-                  checked={showAllCategories}
-                  onCheckedChange={setShowAllCategories}
-                />
-              </div>
-
-              {showAllCategories && (
-                <Card className="bg-gradient-card border-border overflow-hidden">
-                  <div className="flex flex-col gap-2 md:gap-0 md:divide-y md:divide-border p-2 md:p-0">
-                    {parentsWithoutSpend.map((label) => {
-                      const parentBudget = budgetByParent.get(label);
-                      return (
-                        <div
-                          key={label}
-                          className="p-3.5 md:p-5 rounded-lg bg-card/40 md:rounded-none md:bg-transparent flex items-center justify-between gap-3 mx-[5px] md:mx-0"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <p className="text-sm font-medium text-foreground truncate">
-                                {label}
-                              </p>
-                              {parentBudget && (
-                                <Badge variant="outline" className="text-[10px] h-5 border-border bg-secondary/40">
-                                  Limite {formatBRL(parentBudget.monthlyLimit)}
-                                </Badge>
-                              )}
-                            </div>
-                            <p className="text-[11px] text-muted-foreground mt-0.5">
-                              Sem gastos neste mês
-                            </p>
-                          </div>
-                          <div className="shrink-0 flex items-center gap-1">
-                            {parentBudget ? (
-                              <>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-7 text-xs"
-                                  onClick={() => openEditBudget(parentBudget.id)}
-                                >
-                                  <PencilLine className="h-3 w-3 mr-1" /> Editar
-                                </Button>
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                                  onClick={() => removeBudget(parentBudget.id)}
-                                  aria-label="Remover orçamento"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </Button>
-                              </>
-                            ) : (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7 text-xs"
-                                onClick={() => openNewBudget("parent", label)}
-                              >
-                                <Plus className="h-3 w-3 mr-1" /> Definir limite
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </Card>
-              )}
+        {/* Toggle: outras categorias do catálogo */}
+        {extraLabels.length > 0 && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3 px-1">
+              <Label
+                htmlFor="cat-show-others"
+                className="text-xs text-muted-foreground cursor-pointer select-none"
+              >
+                Mostrar outras categorias
+              </Label>
+              <Switch
+                id="cat-show-others"
+                checked={showOthers}
+                onCheckedChange={setShowOthers}
+              />
             </div>
-          )}
+
+            {showOthers && (
+              <Card className="bg-gradient-card border-border overflow-hidden">
+                <div className="flex flex-col gap-2 md:gap-0 md:divide-y md:divide-border p-2 md:p-0">
+                  {extraLabels.map((label) => renderRow(label))}
+                </div>
+              </Card>
+            )}
+          </div>
+        )}
+
+        {monthBucket && monthly.items.length === 0 && (
+          <p className="text-xs text-muted-foreground text-center">
+            Nenhum gasto registrado em {monthBucket.longLabel}.
+          </p>
+        )}
       </div>
 
-      {/* ============= Dialog de orçamento ============= */}
+      {/* ============= Dialog de orçamento (somente categoria-pai) ============= */}
       <Dialog open={dlgOpen} onOpenChange={setDlgOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{dlgEditingId ? "Editar orçamento" : "Novo orçamento"}</DialogTitle>
+            <DialogTitle>{dlgEditingId ? "Editar limite" : "Definir limite"}</DialogTitle>
             <DialogDescription>
-              Defina um limite mensal e o percentual a partir do qual queremos te avisar.
+              {dlgParentLabel
+                ? `Limite mensal para a categoria "${dlgParentLabel}".`
+                : "Defina um limite mensal para a categoria."}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
-            {/* Tipo de orçamento */}
             <div className="space-y-1.5">
-              <Label>Tipo</Label>
-              <div className="inline-flex rounded-md border border-border bg-secondary/40 p-0.5">
-                <button
-                  type="button"
-                  className={cn(
-                    "px-3 py-1.5 text-xs font-medium rounded-sm transition-colors",
-                    dlgScope === "parent" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
-                  )}
-                  onClick={() => { setDlgScope("parent"); setDlgChildLabel(""); setDlgError(null); }}
-                  disabled={!!dlgEditingId}
-                >
-                  Categoria principal
-                </button>
-                <button
-                  type="button"
-                  className={cn(
-                    "px-3 py-1.5 text-xs font-medium rounded-sm transition-colors",
-                    dlgScope === "child" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
-                  )}
-                  onClick={() => { setDlgScope("child"); setDlgError(null); }}
-                  disabled={!!dlgEditingId}
-                >
-                  Subcategoria
-                </button>
-              </div>
+              <Label>Categoria</Label>
+              <div className="text-sm font-medium text-foreground">{dlgParentLabel || "—"}</div>
             </div>
-
-            {/* Categoria principal (sempre visível) */}
-            <div className="space-y-1.5">
-              <Label>Categoria principal</Label>
-              {dlgEditingId ? (
-                <div className="text-sm font-medium text-foreground">{dlgParentLabel || "—"}</div>
-              ) : (
-                <Select value={dlgParentLabel} onValueChange={(v) => { setDlgParentLabel(v); setDlgError(null); }}>
-                  <SelectTrigger className="bg-input border-border">
-                    <SelectValue placeholder="Selecione a categoria principal" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-80">
-                    {parentCategoryLabels.map((label) => (
-                      <SelectItem key={label} value={label}>{label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
-
-            {/* Subcategoria */}
-            {dlgScope === "child" && (
-              <div className="space-y-1.5">
-                <Label>Subcategoria</Label>
-                {dlgEditingId ? (
-                  <div className="text-sm font-medium text-foreground">{dlgChildLabel || "—"}</div>
-                ) : (
-                  <Select
-                    value={dlgChildLabel}
-                    onValueChange={(v) => { setDlgChildLabel(v); setDlgError(null); }}
-                    disabled={!dlgParentLabel || dlgChildOptions.length === 0}
-                  >
-                    <SelectTrigger className="bg-input border-border">
-                      <SelectValue
-                        placeholder={
-                          !dlgParentLabel
-                            ? "Escolha a categoria principal primeiro"
-                            : dlgChildOptions.length === 0
-                              ? "Nenhuma subcategoria disponível"
-                              : "Selecione a subcategoria"
-                        }
-                      />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-80">
-                      {dlgChildOptions.map((label) => (
-                        <SelectItem key={label} value={label}>{label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-                <p className="text-[11px] text-muted-foreground">
-                  As subcategorias são as mesmas que aparecem nas suas transações.
-                </p>
-              </div>
-            )}
 
             <div className="space-y-1.5">
               <Label>Limite mensal (R$)</Label>
