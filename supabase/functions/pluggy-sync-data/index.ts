@@ -323,6 +323,7 @@ Deno.serve(async (req) => {
     // 3. Busca transações por conta
     let totalTx = 0;
     let totalBills = 0;
+    let totalPaidInferred = 0;
     for (const acc of accounts) {
       const accCurrency = acc.currencyCode ?? "BRL";
       const txs = await fetchAllTransactions(acc.id);
@@ -415,7 +416,7 @@ Deno.serve(async (req) => {
           // Detecta pagamento da fatura como uma transação CREDIT na conta do
           // cartão (descrição com "pagamento") + valor próximo do total +
           // janela de [due-30d, due+15d]. Atualiza paid=true para essas bills.
-          await markPaidBillsByInference(adminClient, userId, acc.id, bills);
+          totalPaidInferred += await markPaidBillsByInference(adminClient, userId, acc.id, bills);
         }
       }
     }
@@ -432,7 +433,13 @@ Deno.serve(async (req) => {
       .eq("user_id", userId);
 
     return new Response(
-      JSON.stringify({ ok: true, accounts: accounts.length, transactions: totalTx, bills: totalBills }),
+      JSON.stringify({
+        ok: true,
+        accounts: accounts.length,
+        transactions: totalTx,
+        bills: totalBills,
+        paidInferred: totalPaidInferred,
+      }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err) {
