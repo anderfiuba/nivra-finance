@@ -14,6 +14,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import { inferBillPaid } from "@/lib/billPayment";
 
 const STORAGE_CYCLE = "nivra:cycleDay:v1";
 // Sempre usa a data atual — sem mock.
@@ -70,6 +71,13 @@ export interface FinanceBill {
   minimumPaymentAmount: number | null;
   allowsInstallments: boolean | null;
   paid: boolean;
+  /**
+   * `paid` original da Pluggy OU inferência local (pagamento detectado nas
+   * transações do mesmo cartão).
+   */
+  effectivePaid: boolean;
+  /** True quando `effectivePaid` veio da inferência (não do Pluggy). */
+  paidInferred: boolean;
 }
 
 export interface CategoryBudget {
@@ -437,8 +445,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       });
       setTransactions(txs);
 
-      setBills(
-        (billData ?? []).map((b) => ({
+      const baseBills = (billData ?? []).map((b) => ({
           id: b.id,
           pluggyBillId: b.pluggy_bill_id,
           pluggyAccountId: b.pluggy_account_id,
@@ -449,8 +456,16 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           minimumPaymentAmount: b.minimum_payment_amount !== null ? Number(b.minimum_payment_amount) : null,
           allowsInstallments: b.allows_installments,
           paid: !!b.paid,
-        })),
-      );
+        }));
+      const billsWithInfer: FinanceBill[] = baseBills.map((b) => {
+        const inferred = !b.paid && inferBillPaid(b, txs);
+        return {
+          ...b,
+          effectivePaid: b.paid || inferred,
+          paidInferred: inferred,
+        };
+      });
+      setBills(billsWithInfer);
 
       setCategoryBudgets(
         (budgetData ?? []).map((b) => ({

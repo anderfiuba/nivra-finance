@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { CreditCard } from "lucide-react";
+import { CreditCard, Settings2, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useFinance } from "@/contexts/FinanceContext";
 import {
@@ -156,7 +156,7 @@ const Faturas = () => {
       // vencimento do ciclo anterior. Tolerância: mesmo mês.
       const matchingBill = findBillForDue(bills, account.pluggyAccountId, previous.dueDate);
 
-      if (matchingBill && !matchingBill.paid) {
+      if (matchingBill && !matchingBill.effectivePaid) {
         const bTxs = txsInWindow(transactions, account.pluggyAccountId, previous.start, previous.closingDate);
         const installs = bTxs.filter(isInstallmentTx);
         const oneOffs = bTxs.filter((t) => !isInstallmentTx(t));
@@ -251,7 +251,7 @@ const Faturas = () => {
     const now = Date.now();
     return bills
       .filter((b) => {
-        if (b.paid) return true;
+        if (b.effectivePaid) return true;
         if (!b.dueDate) return false;
         const due = new Date(b.dueDate + "T00:00:00").getTime();
         return now - due > 7 * 24 * 60 * 60 * 1000;
@@ -301,14 +301,47 @@ const Faturas = () => {
   }
 
   const showConfig = pendingConfigAccounts.length > 0 && !dismissedConfig;
+  const [showEditConfig, setShowEditConfig] = useState(false);
+
+  // Quantidade de bills marcadas como pagas via inferência (informativo).
+  const inferredPaidCount = useMemo(
+    () => bills.filter((b) => b.paidInferred).length,
+    [bills],
+  );
 
   return (
     <div className="p-6 md:p-8 space-y-6 max-w-[1600px] mx-auto">
       <div>
-        <h1 className="text-2xl md:text-3xl font-bold text-foreground tracking-tight">Faturas</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Visão consolidada — fatura fechada, ciclo atual estimado e próximas faturas dos seus cartões.
-        </p>
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <h1 className="text-2xl md:text-3xl font-bold text-foreground tracking-tight">Faturas</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Visão consolidada — fatura fechada, ciclo atual estimado e próximas faturas dos seus cartões.
+            </p>
+          </div>
+          {creditAccounts.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowEditConfig((v) => !v)}
+              className="shrink-0"
+            >
+              <Settings2 className="h-4 w-4 mr-1.5" />
+              {showEditConfig ? "Fechar ajuste" : "Ajustar fechamento"}
+            </Button>
+          )}
+        </div>
+        {inferredPaidCount > 0 && (
+          <div className="mt-3 flex items-start gap-2 rounded-md border border-border/60 bg-muted/30 px-3 py-2">
+            <Sparkles className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+            <p className="text-xs text-muted-foreground">
+              {inferredPaidCount === 1
+                ? "1 fatura foi marcada como paga automaticamente"
+                : `${inferredPaidCount} faturas foram marcadas como pagas automaticamente`}
+              {" "}com base em pagamentos detectados nas suas transações.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* 1. Total a pagar */}
@@ -323,11 +356,21 @@ const Faturas = () => {
         }
       />
 
-      {/* 2. Banner de configuração */}
+      {/* 2. Banner de configuração (cartões pendentes) */}
       {showConfig && (
         <ConfigCiclosCard
           pendingAccounts={pendingConfigAccounts}
           onDismiss={() => setDismissedConfig(true)}
+        />
+      )}
+
+      {/* 2b. Modo edição (todos os cartões) */}
+      {showEditConfig && (
+        <ConfigCiclosCard
+          pendingAccounts={creditAccounts}
+          mode="edit"
+          onDismiss={() => setShowEditConfig(false)}
+          onSaved={() => setShowEditConfig(false)}
         />
       )}
 

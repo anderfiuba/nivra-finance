@@ -1,103 +1,111 @@
-## Contexto
+## Diagnóstico — por que Nivra mostra R$ 266,19 enquanto Nubank mostra R$ 897,81
 
-A página atual mostra **uma fatura por vez** (com seletor de cartão e detalhamento de transações). O PDF mostra uma estrutura **muito diferente**:
+Investiguei os dados reais no banco. Há **três problemas distintos** que somados geram a diferença, e um problema visual de duplicidade:
 
-1. **Topo:** card "Total a pagar" agregando todos os cartões, com breakdown.
-2. **Banner:** convite para informar dias de fechamento/vencimento dos cartões que faltam.
-3. **Ciclos de Faturamento:** uma linha por **ciclo** mostrando estado (`Fechada` / `Ciclo atual` / `Aberta`), valor, datas, contadores. Mistura faturas reais (Pluggy) com **ciclo atual estimado** (somando transações desde o último fechamento).
-4. **Próximas Faturas:** ciclos futuros já com parcelas alocadas.
-5. **Recentemente Pagas:** faturas com status pago/fechado.
+### Problema 1 — Janela do ciclo errada (causa principal: ~R$ 631)
 
-Decisões confirmadas com você:
-- **Dias de fechamento/vencimento:** Open Finance traz quando disponível (a Pluggy popula `balance_close_date`/`balance_due_date` automaticamente). Para cartões manuais ou quando esses campos vierem `null`, o usuário informa pelo banner.
-- **Recorrentes:** **não exibir** agora — breakdown será só **Parcelas** + **Compras avulsas**.
-- **Pagas:** status vem da Pluggy (`paid=true` ou ciclo já fechado e antigo). Sem inferência manual.
+Você configurou **Fechamento dia 7** e **Vencimento dia 8**. O Nubank, porém, fecha **dia 1** e vence **dia 8** (você mesmo confirmou). Com isso:
 
-## Mudanças no banco
+- Nivra calcula o ciclo atual como **08/04 → 07/05** (vence 08/05).
+- Nubank/Visor calculam **02/04 → 01/05** (vence 08/05).
 
-### Nova tabela `card_cycle_settings` (migração)
+Resultado: Nivra **não está contando** as compras feitas entre 02/04 e 07/04, que já caíram no ciclo aberto do Nubank. Isso explica a maior parte do gap.
 
-Persiste `closing_day` e `due_day` informados pelo usuário, **com fallback** para os campos da Pluggy quando ausentes.
+> **Ação imediata recomendada:** abrir o card de configuração e mudar fechamento de **7 → 1**. Mas isso sozinho não basta — veja problemas 2 e 3.
 
-```sql
-CREATE TABLE public.card_cycle_settings (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id uuid NOT NULL,
-  pluggy_account_id text NOT NULL,
-  closing_day smallint CHECK (closing_day BETWEEN 1 AND 28),
-  due_day smallint CHECK (due_day BETWEEN 1 AND 28),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (user_id, pluggy_account_id)
-);
+### Problema 2 — Pagamento da fatura anterior está sendo somado como compra (~R$ 0, mas conceitualmente errado)
 
-ALTER TABLE public.card_cycle_settings ENABLE ROW LEVEL SECURITY;
+A transação `Pagamento recebido` de **−R$ 801,02** em 23/04 é um `CREDIT` (entrada de pagamento). Hoje o filtro `txsInWindow` em `Faturas.tsx` ignora `type !== "saida"`, então isso já está OK — **mas** no app Visor essa transação aparece zerando, e o cálculo deve continuar coerente. Verificar se nosso mapeamento de `type` em `FinanceContext` está classificando `CREDIT` como `entrada` corretamente para esse caso. Se não, a fatura cresce indevidamente.
 
--- RLS: SELECT/INSERT/UPDATE/DELETE WHERE auth.uid() = user_id
--- Trigger update_updated_at_column
-```
+### Problema 3 — Contas de cartão duplicadas no banco (causa maior do "Total a pagar" inflado: R$ 1.067,21)
 
-## Novos arquivos
+Existem **3 registros** em `pluggy_accounts` para o cartão "gold":
+- `5e6401ee-…` — gold, balance −4106,91, 43 transações (sync antigo)
+- `f665c728-…` — gold, balance −4106,91, 43 transações (sync antigo)
+- `f6dafb7e-…` — gold 1077, **conta atual** (com bills, cycle settings, 121 transações)
 
-### `src/lib/cardCycle.ts` — utilitário puro
-- `resolveCycleDays(account, manualSetting)` → `{ closingDay, dueDay } | null` priorizando manual > Pluggy.
-- `computeCurrentCycleRange(closingDay, ref)` → `{ start, end }` do ciclo aberto.
-- `computeNextDueDate(dueDay, cycleEnd)` → próximo vencimento (regra: se `dueDay >= closingDay`, vence no mesmo mês do fechamento; senão, no mês seguinte).
-- `formatShortDate(date)` → `"08/05"`.
-- `daysUntil(date)` → número de dias até o vencimento.
+As duas contas antigas (sem `card_number_last4`) **não têm cycle settings**, então caem no "banner de configuração". Mas no `openItems`, sem `days` resolvido, elas são ignoradas — então não inflam o total. **Porém** elas inflam o "Total consolidado" em outras telas e poluem a UI. Precisam ser **deletadas** (ou marcadas como inativas).
 
-### `src/components/faturas/TotalPagarCard.tsx`
-Card grande no topo: valor agregado + linhas Parcelas / Compras avulsas (sem Recorrentes). Recebe lista pré-calculada de "ciclos abertos a pagar" (fatura fechada não-paga + ciclo atual estimado de cada cartão).
+### Problema 4 — Fatura fechada de 08/04 (R$ 801,02) está marcada como "Vencida" mesmo após pagamento
 
-### `src/components/faturas/ConfigCiclosCard.tsx`
-Banner com lista de cartões **sem** `closingDay`/`dueDay` resolvido. Cada linha tem dois inputs `Select 1-28` para fechamento e vencimento + botão check ✓ que faz upsert em `card_cycle_settings`. Banner desaparece quando todos cartões estão configurados (estado oculto via localStorage para não reabrir após dispensa).
+A bill com `due_date = 2026-04-08` tem `paid = false`, mas existe a transação `Pagamento recebido −R$ 801,02` em 23/04 com valor exatamente igual. O Pluggy não atualiza `paid`, então ela continua aparecendo como "Vencida há 17 dias" e somando R$ 801,02 ao "Total a pagar" — quando na verdade já foi paga.
 
-### `src/components/faturas/CicloRow.tsx`
-Item visual padrão do PDF: logo do conector + nome do cartão + badge de status (`Fechada`/`Ciclo atual`/`Paga`/`Vencida`) à esquerda; valor à direita; segunda linha com `Ciclo: dd/MM - dd/MM · Venc: dd/MM · Pgto mín: R$ X` + contadores `N parcelas · M compras`; rodapé com timeline simples (data início — data vencimento) e link "Ver transações →" que expande detalhes inline (reusa lógica atual de avulsas/parcelas).
+É por isso que Nivra mostra **R$ 1.067,21** (R$ 801 fatura "vencida" + R$ 266 ciclo atual) enquanto Visor mostra apenas **R$ 246,77** (só ciclo atual, fatura paga reconhecida).
 
-### `src/pages/app/Faturas.tsx` — reescrito
-Quatro seções renderizadas em sequência:
-1. `<TotalPagarCard />`
-2. `<ConfigCiclosCard />` (condicional)
-3. **Ciclos de Faturamento** — para cada cartão: (a) última fatura fechada não-paga (se existir) + (b) ciclo atual estimado. Ordenadas por proximidade do vencimento.
-4. **Próximas Faturas** — bills futuras (`due_date > próximo vencimento estimado`) ou ciclos N+1 quando há parcelas alocadas.
-5. **Recentemente Pagas** — bills com `paid=true` OU `due_date < hoje - 7 dias` (versão compacta, sem expansão).
+---
 
-## Mudanças em arquivos existentes
+## Plano de correção
 
-### `src/contexts/FinanceContext.tsx`
-- Buscar `card_cycle_settings` do usuário no `loadAll()` e expor via context (`cardCycleSettings: Record<pluggyAccountId, {closingDay, dueDay}>`).
-- Função `upsertCardCycle(pluggyAccountId, closingDay, dueDay)` para o banner usar.
-- **Sem mudança no realtime** (settings raramente mudam).
+### 1. Auto-detecção de pagamentos de fatura → marcar `paid=true`
 
-### `src/integrations/supabase/types.ts`
-Regenerado automaticamente após a migração — não editar manualmente.
+Criar utilitário `inferBillPayment(bill, transactions)` que marca uma bill como paga quando existe `pluggy_transaction` no mesmo `pluggy_account_id` com:
+- `type = 'CREDIT'` (ou amount negativo em conta de crédito)
+- `description` matching `/pagamento.*recebido|pagamento.*fatura|payment.*received/i`
+- `|amount|` dentro de ±2% do `total_amount` da bill
+- `transaction_date` entre `due_date - 30d` e `due_date + 15d`
 
-## Lógica de cálculo do "ciclo atual estimado"
+Aplicar em duas frentes:
+- **Edge function `pluggy-sync-data`**: após inserir bills + transactions, rodar a inferência e fazer `UPDATE pluggy_bills SET paid=true WHERE …`.
+- **Cliente (`FinanceContext`)**: como fallback imediato para o usuário, computar `effectivePaid = bill.paid || inferPaid(bill, txs)` ao montar `bills`. Sem nova migration; só lógica.
 
-Para cada cartão CREDIT:
-1. Resolver `closingDay`/`dueDay` (manual > Pluggy). Se ambos `null` → cartão entra apenas no banner de configuração e **não** aparece em "Ciclos de Faturamento".
-2. `currentCycle = computeCurrentCycleRange(closingDay, hoje)` → janela `[fechamento_anterior+1, próximo_fechamento]`.
-3. Filtrar `transactions` desse `pluggyAccountId` cujo `transaction_date` está em `currentCycle` e `type = 'DEBIT'`.
-4. Total estimado = soma dos `amount` dessas transações **menos** créditos de estorno.
-5. Breakdown: usa `installment_number IS NOT NULL` (banco já tem o campo confiável) → parcelas vs avulsas. Heurística regex atual será **descartada**.
+Bills marcadas como pagas:
+- saem do `openItems` em `Faturas.tsx` (não somam ao "Total a pagar"),
+- entram em `paidItems` ("Recentemente Pagas") imediatamente.
 
-## Pontos não resolvidos / ressalvas
+### 2. Limpar contas de cartão duplicadas
 
-- **Ciclo atual ≠ fatura oficial.** Mostrar tooltip "Baseado nas transações do ciclo atual. O valor oficial aparece quando o banco enviar a fatura." (igual PDF).
-- **Cartão `gold` do usuário hoje** tem `balance_close_date = null` mas `balance_due_date = 2026-04-08` → o banner pedirá só o dia de fechamento.
-- **Múltiplos cartões:** layout funciona; testaremos no viewport mobile (375px) garantindo que o valor não quebre embaixo do nome.
-- **"Recentemente Pagas"** ficará pouco populada hoje (Pluggy não marca pago). Listaremos faturas vencidas há mais de 7 dias com tooltip explicativo.
+As contas `5e6401ee-…` e `f665c728-…` são lixo de syncs antigos (mesmo cartão, mesmo balance, mesmo histórico). Criar **migration** que:
+- Identifica accounts órfãs: aquelas cujo `pluggy_item_id` não existe mais em `pluggy_items` para o `user_id`, OU
+- Identifica duplicatas: mesmo `(user_id, name, type)` mantendo só a mais recente com transações vinculadas.
+- Deleta as órfãs e suas transações associadas.
 
-## Resumo de arquivos
+Adicionalmente, atualizar `pluggy-sync-data` para deletar accounts que não voltam mais do Pluggy (já existe a lógica de items, falta para accounts dentro de um item).
 
-**Novos:**
-- migração SQL `create_card_cycle_settings.sql`
-- `src/lib/cardCycle.ts`
-- `src/components/faturas/TotalPagarCard.tsx`
-- `src/components/faturas/ConfigCiclosCard.tsx`
-- `src/components/faturas/CicloRow.tsx`
+### 3. Banner de aviso quando fechamento configurado diverge das transações
 
-**Editados:**
-- `src/contexts/FinanceContext.tsx`
-- `src/pages/app/Faturas.tsx` (reescrita completa)
+No card de configuração de ciclo (`ConfigCiclosCard`), quando o usuário tiver bills do Pluggy disponíveis para o cartão, **inferir** o `closing_day` real a partir do dia da semana/mês das `due_date` históricas (vencimento − N dias úteis padrão). Exibir sugestão: "Detectamos que seu cartão fecha no dia X com base nas faturas anteriores". Botão "Usar esses valores".
+
+Isso evita que o usuário configure 7/8 (errado) quando o real é 1/8.
+
+### 4. Pequenos ajustes em `Faturas.tsx`
+
+- Ao montar `openItems`, **respeitar `effectivePaid`**: se a bill anterior foi paga (inferida), não adicionar como "fechada" no painel.
+- Adicionar tooltip no "Total a pagar" listando exatamente o que está somando: "Ciclo atual cartão X: R$ Y · Fatura fechada cartão Z: R$ W".
+- Mostrar nota informativa "Pagamento de R$ 801,02 detectado em 23/04 — fatura marcada como paga automaticamente" nas faturas inferidas.
+
+### 5. (Opcional) Página de comparação
+
+Adicionar pequeno painel de debug em `/app/faturas` (visível só em dev ou via flag) que mostra lado a lado, para cada cartão:
+- Fechamento configurado vs. inferido pelo histórico de bills.
+- Janela do ciclo atual usada.
+- Soma de transações dessa janela.
+- Bills do Pluggy dentro/fora dessa janela.
+
+Isso facilita debugar discrepâncias futuras sem precisar consultar o banco.
+
+---
+
+## Arquivos afetados
+
+**Editar:**
+- `supabase/functions/pluggy-sync-data/index.ts` — inferência de pagamento + limpeza de accounts órfãs.
+- `src/contexts/FinanceContext.tsx` — campo `effectivePaid` em `FinanceBill`, exposição da inferência client-side.
+- `src/pages/app/Faturas.tsx` — usar `effectivePaid`, ajustar `openItems` e `paidItems`, tooltip no total.
+- `src/components/faturas/ConfigCiclosCard.tsx` — sugestão de fechamento inferido das bills.
+- `src/components/faturas/TotalPagarCard.tsx` — breakdown detalhado por cartão (tooltip ou expansão).
+
+**Novo:**
+- `src/lib/billPayment.ts` — utilitário de inferência de pagamento (puro, testável).
+- `supabase/migrations/<ts>_cleanup_duplicate_credit_accounts.sql` — migration única para limpar as 2 accounts órfãs do seu user.
+
+---
+
+## Resultado esperado após aplicar
+
+Para o seu caso:
+- Fatura `due 08/04` (R$ 801,02) → marcada como paga automaticamente, sai de "Ciclos de Faturamento", entra em "Recentemente Pagas".
+- Após você ajustar fechamento para **dia 1**, o ciclo atual passa a ser **02/04 → 01/05** e a soma deve bater com Nubank/Visor (~R$ 897 considerando IOF e juros, ~R$ 246 se descontar essas multas como o Visor faz).
+- **Total a pagar** deixa de mostrar R$ 1.067 e passa a mostrar apenas o ciclo atual (~R$ 250–900 dependendo do que considerar).
+- Contas duplicadas somem.
+
+Quer que eu também investigue por que o Visor mostra R$ 246 e o Nubank R$ 897 (provavelmente o Visor está excluindo multas/juros automáticos do "Total a pagar" e listando-os à parte)?

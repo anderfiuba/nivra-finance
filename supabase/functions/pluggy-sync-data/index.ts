@@ -410,6 +410,12 @@ Deno.serve(async (req) => {
             .upsert(billRows, { onConflict: "pluggy_bill_id" });
           if (billErr) console.error("upsert pluggy_bills failed", billErr);
           else totalBills += billRows.length;
+
+          // Inferência de pagamento: a Pluggy raramente atualiza paid=true.
+          // Detecta pagamento da fatura como uma transação CREDIT na conta do
+          // cartão (descrição com "pagamento") + valor próximo do total +
+          // janela de [due-30d, due+15d]. Atualiza paid=true para essas bills.
+          await markPaidBillsByInference(adminClient, userId, acc.id, bills);
         }
       }
     }
@@ -438,3 +444,48 @@ Deno.serve(async (req) => {
     });
   }
 });
+
+// deno-lint-ignore no-explicit-any
+async function markPaidBillsByInference(
+  adminClient: any,
+  userId: string,
+  pluggyAccountId: string,
+  bills: PluggyBill[],
+): Promise<void> {
+  // Pega transações CREDIT (entrada) com descrição de pagamento dessa conta.
+  const { data: txs, error } = await adminClient
+    .from("pluggy_transactions")
+    .select("amount, transaction_date, description, type")
+    .eq("user_id", userId)
+    .eq("pluggy_account_id", pluggyAccountId)
+    .or("type.eq.CREDIT,description.ilike.%pagamento%");
+  if (error || !txs) return;
+
+  const PAYMENT_RE = /pagamento|payment\s*received|fatura\s*paga/i;
+  const candidates = (txs as Array<{ amount: number | string; transaction_date: string; description: string; type: string | null }>).filter(
+    (t) => (t.type ?? "").toUpperCase() === "CREDIT" || PAYMENT_RE.test(t.description ?? ""),
+  ).map((t) => ({
+    amount: Math.abs(Number(t.amount)),
+    ts: new Date(t.transaction_date).getTime(),
+    desc: t.description ?? "",
+  }));
+
+  const idsToMarkPaid: string[] = [];
+  for (const b of bills) {
+    if (!b.dueDate || b.totalAmount == null) continue;
+    const total = Number(b.totalAmount);
+    if (!(total > 0)) continue;
+    const tol = Math.max(1, total * 0.02);
+    const due = new Date(b.dueDate.slice(0, 10) + "T00:00:00").getTime();
+    const lo = due - 30 * 86400000;
+    const hi = due + 15 * 86400000;
+    const match = candidates.some((c) => c.ts >= lo && c.ts <= hi && Math.abs(c.amount - total) <= tol);
+    if (match) idsToMarkPaid.push(b.id);
+  }
+  if (idsToMarkPaid.length === 0) return;
+  await adminClient
+    .from("pluggy_bills")
+    .update({ paid: true })
+    .in("pluggy_bill_id", idsToMarkPaid)
+    .eq("user_id", userId);
+}
