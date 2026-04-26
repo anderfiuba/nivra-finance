@@ -484,6 +484,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      lgpd_data_retention_cleanup: { Args: never; Returns: Json }
       trigger_pluggy_sync_all: { Args: never; Returns: undefined }
     }
     Enums: {
