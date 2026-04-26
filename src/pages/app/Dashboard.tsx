@@ -50,6 +50,7 @@ const Dashboard = () => {
     expensesByCategoryMonth,
     currentMonthLabel,
     patrimonyHistory,
+    patrimonyHistoryIncomplete,
     netWorth,
     accounts,
     bills,
