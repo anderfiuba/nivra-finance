@@ -10,22 +10,42 @@ import { cn } from "@/lib/utils";
 
 /**
  * Versão compacta da Pocket View para o topo do Dashboard.
- * Mostra o "Disponível este mês" + 3 categorias mais críticas.
- * Em telas <md ocupa largura total e parece a Pocket View — atalho principal.
+ *
+ * Prioridade do teto exibido:
+ *   1. Limite TOTAL definido pelo usuário (`totalBudget.monthlyLimit`).
+ *   2. Soma dos limites por categoria (fallback).
+ * Quando o teto vem do limite total, o "gasto" é o TOTAL do ciclo financeiro
+ * — assim o card reflete tudo que o usuário consumiu, não apenas as categorias
+ * com orçamento.
  */
 export function PocketSummaryCard() {
-  const { budgetProgress } = useFinance();
+  const { budgetProgress, totalBudget, cycleCategoryAggregates, lastCycles } = useFinance();
+
+  const currentCycle = useMemo(() => lastCycles(1)[0], [lastCycles]);
+  const cycleKey = currentCycle?.key ?? "";
+  const cycleAgg = useMemo(
+    () => cycleCategoryAggregates(cycleKey),
+    [cycleCategoryAggregates, cycleKey],
+  );
 
   const totals = useMemo(() => {
-    const limit = budgetProgress.reduce((s, b) => s + b.limit, 0);
-    const spent = budgetProgress.reduce((s, b) => s + b.spent, 0);
+    const parentSum = budgetProgress
+      .filter((b) => b.scope === "parent")
+      .reduce((s, b) => s + b.limit, 0);
+    const limit = totalBudget?.monthlyLimit ?? parentSum;
+    const spent = totalBudget
+      ? cycleAgg.total
+      : budgetProgress
+          .filter((b) => b.scope === "parent")
+          .reduce((s, b) => s + b.spent, 0);
     return {
       limit,
       spent,
       available: limit - spent,
       ratio: limit > 0 ? Math.min(1, spent / limit) : 0,
+      hasLimit: limit > 0,
     };
-  }, [budgetProgress]);
+  }, [budgetProgress, totalBudget, cycleAgg]);
 
   const top = useMemo(() => {
     const order: Record<string, number> = { over: 0, alert: 1, ok: 2 };
@@ -38,7 +58,7 @@ export function PocketSummaryCard() {
       .slice(0, 3);
   }, [budgetProgress]);
 
-  if (budgetProgress.length === 0) {
+  if (!totals.hasLimit) {
     return (
       <Card className="bg-gradient-card border-border p-4 md:p-5 flex items-center gap-4">
         <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
@@ -47,7 +67,7 @@ export function PocketSummaryCard() {
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-foreground">Quanto posso gastar?</p>
           <p className="text-xs text-muted-foreground">
-            Defina um limite mensal por categoria pra ver aqui o saldo disponível.
+            Defina um limite mensal pra ver aqui o saldo disponível.
           </p>
         </div>
         <Button asChild size="sm" className="shrink-0">
@@ -73,6 +93,10 @@ export function PocketSummaryCard() {
             )}
           >
             {formatBRL(totals.available)}
+          </p>
+          <p className="text-[11px] text-muted-foreground mt-0.5 tabular-nums">
+            {formatBRL(totals.spent)} de {formatBRL(totals.limit)}
+            {totalBudget ? " · limite total" : " · soma das categorias"}
           </p>
         </div>
         <Button asChild variant="ghost" size="sm" className="shrink-0 text-xs">

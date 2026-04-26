@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import {
   Drawer,
   DrawerContent,
-  DrawerDescription,
   DrawerFooter,
   DrawerHeader,
   DrawerTitle,
@@ -12,13 +11,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { ArrowRight, Trash2 } from "lucide-react";
 import { useFinance } from "@/contexts/FinanceContext";
 import { formatBRL } from "@/lib/format";
@@ -29,32 +21,31 @@ interface Props {
   onOpenChange: (v: boolean) => void;
   /** Quando passado, edita um orçamento existente (modo edit). */
   budgetId?: string | null;
-  /** Categoria pai. Sempre obrigatório. */
+  /** Categoria pai. Sempre obrigatória — trabalhamos só com categorias-pai. */
   categoryLabel: string;
-  /** Quando definido, é orçamento de subcategoria. */
-  parentCategoryLabel?: string | null;
 }
 
 /**
  * Bottom sheet (mobile) / drawer (desktop) com:
- * - Edição rápida do limite (input + slider).
+ * - Edição rápida do limite (input + slider) para a CATEGORIA PAI.
  * - 5 últimas transações da categoria no mês corrente.
  * - Link para o extrato filtrado.
  * - Remover orçamento (quando em modo edit).
+ *
+ * Subcategorias são apenas para consulta na página Categorias — aqui é sempre
+ * orçamento de categoria-pai.
  */
 export function CategorySheet({
   open,
   onOpenChange,
   budgetId,
   categoryLabel,
-  parentCategoryLabel = null,
 }: Props) {
   const {
     categoryBudgets,
     monthTransactions,
     upsertBudget,
     deleteBudget,
-    categories,
     totalBudget,
     parentBudgetsSum,
   } = useFinance();
@@ -67,31 +58,12 @@ export function CategorySheet({
   const [limit, setLimit] = useState<string>("");
   const [threshold, setThreshold] = useState<number>(80);
   const [saving, setSaving] = useState(false);
-  // "" = orçamento da categoria pai. Qualquer outro valor = nome da subcategoria.
-  const [childChoice, setChildChoice] = useState<string>("");
-
-  // Subcategorias do pai atual (somente quando estamos criando um novo orçamento de pai).
-  const childOptions = useMemo(() => {
-    if (existing) return [];
-    if (parentCategoryLabel) return []; // já é subcategoria
-    // Encontra o id da categoria pai pelo label PT-BR e lista as filhas.
-    const parent = categories.find(
-      (c) => c.parentId === null && (c.descriptionTranslated || c.description) === categoryLabel,
-    );
-    if (!parent) return [];
-    return categories
-      .filter((c) => c.parentId === parent.id)
-      .map((c) => (c.descriptionTranslated || c.description || "").trim())
-      .filter(Boolean)
-      .sort((a, b) => a.localeCompare(b, "pt-BR"));
-  }, [categories, categoryLabel, parentCategoryLabel, existing]);
 
   // (re)inicializa quando abre
   useEffect(() => {
     if (!open) return;
     setLimit(existing ? String(existing.monthlyLimit) : "");
     setThreshold(existing ? Math.round(existing.alertThreshold * 100) : 80);
-    setChildChoice("");
   }, [open, existing]);
 
   const recentTxs = useMemo(() => {
@@ -111,35 +83,22 @@ export function CategorySheet({
     // Validação contra o limite TOTAL: a soma dos limites de categorias-pai
     // não pode ultrapassar o limite total definido pelo usuário.
     if (totalBudget) {
-      const isChildPick = !existing && !parentCategoryLabel && childChoice.length > 0;
-      const willBeChild = isChildPick || !!parentCategoryLabel;
-      // Só valida quando o orçamento sendo salvo afeta a soma de pais.
-      if (!willBeChild) {
-        const previousLimit =
-          existing && existing.scope === "parent" ? existing.monthlyLimit : 0;
-        const projectedSum = parentBudgetsSum - previousLimit + value;
-        if (projectedSum > totalBudget.monthlyLimit + 0.001) {
-          toast.error(
-            `Limite total estourado: a soma das categorias ficaria em ${formatBRL(
-              projectedSum,
-            )}, acima do teto de ${formatBRL(totalBudget.monthlyLimit)}.`,
-          );
-          return;
-        }
+      const previousLimit =
+        existing && existing.scope === "parent" ? existing.monthlyLimit : 0;
+      const projectedSum = parentBudgetsSum - previousLimit + value;
+      if (projectedSum > totalBudget.monthlyLimit + 0.001) {
+        toast.error(
+          `Limite total estourado: a soma das categorias ficaria em ${formatBRL(
+            projectedSum,
+          )}, acima do teto de ${formatBRL(totalBudget.monthlyLimit)}.`,
+        );
+        return;
       }
     }
 
     setSaving(true);
     try {
-      // Se o usuário escolheu uma subcategoria, salva como child desse pai.
-      const isChildPick = !existing && !parentCategoryLabel && childChoice.length > 0;
-      const targetLabel = isChildPick ? childChoice : categoryLabel;
-      const targetParent = isChildPick
-        ? categoryLabel
-        : parentCategoryLabel ?? null;
-      const targetScope: "parent" | "child" =
-        isChildPick || parentCategoryLabel ? "child" : "parent";
-      await upsertBudget(targetLabel, value, threshold / 100, targetScope, targetParent);
+      await upsertBudget(categoryLabel, value, threshold / 100, "parent", null);
       toast.success("Limite salvo");
       onOpenChange(false);
     } finally {
@@ -164,34 +123,9 @@ export function CategorySheet({
       <DrawerContent className="max-h-[92vh]">
         <DrawerHeader className="text-left">
           <DrawerTitle className="text-lg">{categoryLabel}</DrawerTitle>
-          {parentCategoryLabel && (
-            <DrawerDescription>Subcategoria de {parentCategoryLabel}</DrawerDescription>
-          )}
         </DrawerHeader>
 
         <div className="px-4 pb-2 space-y-5 overflow-y-auto">
-          {/* Escolha pai vs subcategoria — só ao criar novo orçamento de uma categoria pai. */}
-          {!existing && !parentCategoryLabel && childOptions.length > 0 && (
-            <div className="space-y-1.5">
-              <Label className="text-xs uppercase tracking-wide text-muted-foreground">
-                Aplicar limite a
-              </Label>
-              <Select value={childChoice || "__parent__"} onValueChange={(v) => setChildChoice(v === "__parent__" ? "" : v)}>
-                <SelectTrigger className="h-11">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__parent__">{categoryLabel} (categoria toda)</SelectItem>
-                  {childOptions.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-
           {/* Limite */}
           <div className="space-y-3">
             <div className="space-y-1.5">
