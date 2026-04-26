@@ -10,11 +10,19 @@ import { CategoryBudgetCard } from "@/components/disponivel/CategoryBudgetCard";
 import { CategorySheet } from "@/components/disponivel/CategorySheet";
 import { TotalBudgetCard } from "@/components/disponivel/TotalBudgetCard";
 import { CycleDaySettingsButton } from "@/components/CycleDaySettingsButton";
+import { DEFAULT_PARENT_CATEGORIES } from "@/lib/defaultCategories";
 
 /**
  * Pocket View — "Quanto ainda posso gastar este mês?".
  * Mobile-first: o que importa fica acima da dobra (saldo grande + barra agregada).
- * Sem poluição: só lista categorias com orçamento OU com gasto real no mês.
+ *
+ * Regras de visualização:
+ * - Sempre mostra as 7 categorias-pai padrão (em ordem alfabética PT-BR), mesmo
+ *   sem gasto no ciclo. Convidam o usuário a definir limite logo de cara.
+ * - O toggle "Mostrar categorias sem gasto este mês" revela as demais categorias
+ *   do catálogo (com ou sem gasto).
+ * - Trabalhamos APENAS com categorias-pai aqui; subcategorias servem só para
+ *   consulta na página Categorias.
  */
 const Disponivel = () => {
   const { budgetProgress, cycleCategoryAggregates, lastCycles, currentCycleLabel, categories } =
@@ -42,78 +50,93 @@ const Disponivel = () => {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [sheetSelection, setSheetSelection] = useState<{
     categoryLabel: string;
-    parentCategoryLabel: string | null;
     budgetId: string | null;
   } | null>(null);
-  const [showAllCategories, setShowAllCategories] = useState(false);
+  const [showOthers, setShowOthers] = useState(false);
 
   const openSheetForBudget = (b: (typeof budgetProgress)[number]) => {
     setSheetSelection({
       categoryLabel: b.categoryLabel,
-      parentCategoryLabel: b.parentCategoryLabel,
       budgetId: b.budgetId,
     });
     setSheetOpen(true);
   };
 
-  const openSheetForNew = (categoryLabel: string) => {
-    setSheetSelection({ categoryLabel, parentCategoryLabel: null, budgetId: null });
+  const openSheetForLabel = (categoryLabel: string) => {
+    setSheetSelection({ categoryLabel, budgetId: null });
     setSheetOpen(true);
   };
 
   // Agregados do CICLO inteiro (todas as categorias, com ou sem orçamento).
   const cycleAgg = useMemo(() => cycleCategoryAggregates(cycleKey), [cycleCategoryAggregates, cycleKey]);
 
-  // Ordena: estouro primeiro, depois alerta, depois ok (por ratio decrescente).
-  const sortedBudgets = useMemo(() => {
-    const order: Record<string, number> = { over: 0, alert: 1, ok: 2 };
-    return [...budgetProgress].sort((a, b) => {
-      const diff = order[a.status] - order[b.status];
-      if (diff !== 0) return diff;
-      return b.ratio - a.ratio;
-    });
+  // Mapa rápido: label de categoria-pai → orçamento e gasto no ciclo.
+  const parentBudgetByLabel = useMemo(() => {
+    const m = new Map<string, (typeof budgetProgress)[number]>();
+    for (const b of budgetProgress) {
+      if (b.scope === "parent") m.set(b.categoryLabel, b);
+    }
+    return m;
   }, [budgetProgress]);
 
-  // Categorias com gasto no CICLO mas sem orçamento — sugestões.
-  const unbudgeted = useMemo(() => {
-    const labelsWithBudget = new Set(
-      budgetProgress.filter((b) => b.scope === "parent").map((b) => b.categoryLabel),
-    );
-    return cycleAgg.items
-      .filter((it) => !labelsWithBudget.has(it.parentLabel))
-      .map((it) => ({ categoryLabel: it.parentLabel, spent: it.spent }))
-      .slice(0, 6);
-  }, [budgetProgress, cycleAgg]);
+  const spentByParent = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const it of cycleAgg.items) m.set(it.parentLabel, it.spent);
+    return m;
+  }, [cycleAgg]);
 
-  // Catálogo de categorias-pai (PT-BR) que ainda não têm orçamento e nem gasto no mês.
-  // Permite ao usuário definir limite mesmo sem ter consumido na categoria.
-  const catalogParents = useMemo(() => {
-    const labelsWithBudget = new Set(
-      budgetProgress.filter((b) => b.scope === "parent").map((b) => b.categoryLabel),
-    );
-    const labelsWithSpend = new Set(unbudgeted.map((u) => u.categoryLabel));
-
-    // Coleta nomes únicos de categorias pai do catálogo Pluggy.
-    const parentSet = new Set<string>();
+  // Catálogo de categorias-pai PT-BR vindas do Pluggy (filtrando transferências/pagto cartão).
+  const allCatalogParents = useMemo(() => {
+    const set = new Set<string>();
     for (const c of categories) {
-      // Categoria pai: parentId === null. Usa parentDescription quando vier preenchida,
-      // senão a própria description traduzida.
-      const isParent = c.parentId === null;
-      if (!isParent) continue;
+      if (c.parentId !== null) continue;
       const label = (c.descriptionTranslated || c.description || "").trim();
       if (!label) continue;
-      // Filtra transferências/pagamento de cartão (não são despesa real).
       if (/^Transfer/i.test(label) || /transfer/i.test(label)) continue;
       if (/cart[aã]o de cr[eé]dito|credit card payment/i.test(label)) continue;
-      parentSet.add(label);
+      set.add(label);
     }
+    // Garante que as 7 padrão sempre estejam disponíveis, mesmo se o catálogo ainda
+    // não foi sincronizado.
+    for (const def of DEFAULT_PARENT_CATEGORIES) set.add(def);
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [categories]);
 
-    return Array.from(parentSet)
-      .filter((label) => !labelsWithBudget.has(label) && !labelsWithSpend.has(label))
-      .sort((a, b) => a.localeCompare(b, "pt-BR"));
-  }, [categories, budgetProgress, unbudgeted]);
+  // Helper: monta a "linha" da categoria — preferindo o BudgetProgress quando há
+  // orçamento (assim o card mostra barra/restante), caindo para "unbudgeted" caso contrário.
+  const renderCategoryRow = (label: string) => {
+    const budget = parentBudgetByLabel.get(label);
+    if (budget) {
+      return (
+        <CategoryBudgetCard
+          key={label}
+          progress={budget}
+          onOpenSheet={() => openSheetForBudget(budget)}
+        />
+      );
+    }
+    const spent = spentByParent.get(label) ?? 0;
+    return (
+      <CategoryBudgetCard
+        key={label}
+        unbudgeted={{ categoryLabel: label, spent }}
+        onOpenSheet={() => openSheetForLabel(label)}
+        onCreateBudget={(l) => openSheetForLabel(l)}
+      />
+    );
+  };
 
-  const isEmpty = budgetProgress.length === 0;
+  // Linhas SEMPRE visíveis: as 7 padrão em ordem alfabética.
+  const defaultLabels = useMemo(
+    () => [...DEFAULT_PARENT_CATEGORIES].sort((a, b) => a.localeCompare(b, "pt-BR")),
+    [],
+  );
+
+  // Categorias EXTRAS do catálogo (excluindo as padrão). Aparecem só com toggle.
+  const extraLabels = useMemo(
+    () => allCatalogParents.filter((l) => !defaultLabels.includes(l as never)),
+    [allCatalogParents, defaultLabels],
+  );
 
   return (
     <div
@@ -136,100 +159,32 @@ const Disponivel = () => {
       {/* Limite total — sempre visível (define ou edita). */}
       <TotalBudgetCard spent={cycleAgg.total} />
 
-      {/* Estado vazio: convite para criar primeiro orçamento por categoria. */}
-      {isEmpty && (
-        <Card className="bg-gradient-card border-border p-6 text-center space-y-4">
-          <div className="mx-auto h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
-            <Wallet className="h-6 w-6 text-primary" />
-          </div>
-          <div className="space-y-1">
-            <h2 className="text-lg font-semibold text-foreground">
-              Defina seu primeiro limite
-            </h2>
-            <p className="text-sm text-muted-foreground max-w-sm mx-auto">
-              Em poucos toques você passa a ver, antes de qualquer compra, quanto ainda pode gastar este mês.
-            </p>
-          </div>
-          {unbudgeted.length > 0 && (
-            <div className="space-y-2 text-left pt-2">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Sugestões</p>
-              {unbudgeted.slice(0, 3).map((u) => (
-                <CategoryBudgetCard
-                  key={u.categoryLabel}
-                  unbudgeted={u}
-                  onOpenSheet={() => openSheetForNew(u.categoryLabel)}
-                  onCreateBudget={(label) => openSheetForNew(label)}
-                />
-              ))}
-            </div>
-          )}
-        </Card>
-      )}
+      {/* Categorias padrão — sempre visíveis em ordem alfabética. */}
+      <section className="space-y-2">
+        <h3 className="text-xs uppercase tracking-wider text-muted-foreground px-1">
+          Categorias
+        </h3>
+        <div className="space-y-2">{defaultLabels.map((label) => renderCategoryRow(label))}</div>
+      </section>
 
-      {/* Lista de categorias com orçamento */}
-      {sortedBudgets.length > 0 && (
-        <section className="space-y-2">
-          <h3 className="text-xs uppercase tracking-wider text-muted-foreground px-1">
-            Por categoria
-          </h3>
-          <div className="space-y-2">
-            {sortedBudgets.map((b) => (
-              <CategoryBudgetCard
-                key={b.budgetId}
-                progress={b}
-                onOpenSheet={() => openSheetForBudget(b)}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Categorias sem orçamento mas com gasto real */}
-      {!isEmpty && unbudgeted.length > 0 && (
-        <section className="space-y-2">
-          <h3 className="text-xs uppercase tracking-wider text-muted-foreground px-1">
-            Sem limite ainda
-          </h3>
-          <div className="space-y-2">
-            {unbudgeted.map((u) => (
-              <CategoryBudgetCard
-                key={u.categoryLabel}
-                unbudgeted={u}
-                onOpenSheet={() => openSheetForNew(u.categoryLabel)}
-                onCreateBudget={(label) => openSheetForNew(label)}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Toggle minimalista: ver todas as categorias-pai do catálogo (sem gasto ainda). */}
-      {catalogParents.length > 0 && (
+      {/* Toggle minimalista: revelar demais categorias do catálogo. */}
+      {extraLabels.length > 0 && (
         <section className="space-y-2">
           <div className="flex items-center justify-between gap-3 px-1">
             <Label
-              htmlFor="show-all-cats"
+              htmlFor="show-other-cats"
               className="text-xs text-muted-foreground cursor-pointer select-none"
             >
-              Mostrar categorias sem gasto este mês
+              Mostrar outras categorias
             </Label>
             <Switch
-              id="show-all-cats"
-              checked={showAllCategories}
-              onCheckedChange={setShowAllCategories}
+              id="show-other-cats"
+              checked={showOthers}
+              onCheckedChange={setShowOthers}
             />
           </div>
-          {showAllCategories && (
-            <div className="space-y-2">
-              {catalogParents.map((label) => (
-                <CategoryBudgetCard
-                  key={label}
-                  unbudgeted={{ categoryLabel: label, spent: 0 }}
-                  onOpenSheet={() => openSheetForNew(label)}
-                  onCreateBudget={(l) => openSheetForNew(l)}
-                />
-              ))}
-            </div>
+          {showOthers && (
+            <div className="space-y-2">{extraLabels.map((label) => renderCategoryRow(label))}</div>
           )}
         </section>
       )}
@@ -249,7 +204,6 @@ const Disponivel = () => {
           onOpenChange={setSheetOpen}
           budgetId={sheetSelection.budgetId}
           categoryLabel={sheetSelection.categoryLabel}
-          parentCategoryLabel={sheetSelection.parentCategoryLabel}
         />
       )}
     </div>
