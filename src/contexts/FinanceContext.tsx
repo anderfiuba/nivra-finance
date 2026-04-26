@@ -165,6 +165,14 @@ interface FinanceContextValue {
   cycleTotals: CycleTotals;
   previousCycleTotals: CycleTotals;
   expensesByCategoryCycle: { name: string; value: number; color: string }[];
+  // Selectors por mês civil (independente do cycleDay) — usados no Dashboard.
+  monthTransactions: Transaction[];
+  monthTotals: CycleTotals;
+  previousMonthTotals: CycleTotals;
+  expensesByCategoryMonth: { name: string; value: number; color: string }[];
+  currentMonthLabel: string;
+  /** Série diária do patrimônio nos últimos N dias (default 90). Crescente. */
+  patrimonyHistory: { date: string; value: number }[];
   // Faturas
   bills: FinanceBill[];
   // Orçamentos
