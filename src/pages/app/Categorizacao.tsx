@@ -127,16 +127,20 @@ const Categorizacao = () => {
     [allCatalogParents, primaryLabels],
   );
 
-  // Filtro "apenas com gastos no ciclo".
-  const hasSpending = (label: string) => (aggByParent.get(label)?.spent ?? 0) > 0;
-  const visiblePrimaryLabels = useMemo(
-    () => (onlyWithSpending ? primaryLabels.filter(hasSpending) : primaryLabels),
-    [primaryLabels, onlyWithSpending, aggByParent],
-  );
-  const visibleExtraLabels = useMemo(
-    () => (onlyWithSpending ? extraLabels.filter(hasSpending) : extraLabels),
-    [extraLabels, onlyWithSpending, aggByParent],
-  );
+  // Quando "apenas com gastos" está ativo, listamos TODAS as categorias-pai
+  // (catálogo completo + qualquer agregação do ciclo) que tiveram gasto > 0,
+  // ignorando a separação default/extra.
+  const labelsWithSpending = useMemo(() => {
+    const set = new Set<string>();
+    for (const it of monthly.items) {
+      if (it.spent > 0) set.add(it.parentLabel);
+    }
+    for (const l of allCatalogParents) {
+      const sp = aggByParent.get(l)?.spent ?? 0;
+      if (sp > 0) set.add(l);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [monthly.items, allCatalogParents, aggByParent]);
 
   // ---------- dialog handlers ----------
   const openNewBudget = (parentLabel: string) => {
