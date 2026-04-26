@@ -649,15 +649,31 @@ const Categorizacao = () => {
                 {dlgEditingId ? (
                   <div className="text-sm font-medium text-foreground">{dlgChildLabel || "—"}</div>
                 ) : (
-                  <Input
-                    placeholder="Ex.: Restaurantes"
+                  <Select
                     value={dlgChildLabel}
-                    onChange={(e) => { setDlgChildLabel(e.target.value); setDlgError(null); }}
-                    className="bg-input border-border"
-                  />
+                    onValueChange={(v) => { setDlgChildLabel(v); setDlgError(null); }}
+                    disabled={!dlgParentLabel || dlgChildOptions.length === 0}
+                  >
+                    <SelectTrigger className="bg-input border-border">
+                      <SelectValue
+                        placeholder={
+                          !dlgParentLabel
+                            ? "Escolha a categoria principal primeiro"
+                            : dlgChildOptions.length === 0
+                              ? "Nenhuma subcategoria disponível"
+                              : "Selecione a subcategoria"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-80">
+                      {dlgChildOptions.map((label) => (
+                        <SelectItem key={label} value={label}>{label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 )}
                 <p className="text-[11px] text-muted-foreground">
-                  Use o nome exato como aparece nas suas transações (ex.: a subcategoria que aparece dentro do mês).
+                  As subcategorias são as mesmas que aparecem nas suas transações.
                 </p>
               </div>
             )}
