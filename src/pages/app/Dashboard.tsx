@@ -31,7 +31,6 @@ import { useFinance } from "@/contexts/FinanceContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
-import { PocketSummaryCard } from "@/components/dashboard/PocketSummaryCard";
 
 const pctChange = (curr: number, prev: number): { label: string; positive: boolean } => {
   if (prev === 0) return { label: curr === 0 ? "0%" : "+100%", positive: curr >= 0 };
@@ -141,17 +140,11 @@ const Dashboard = () => {
       </div>
 
       {/* Pocket: "Quanto posso gastar este mês?" — atalho principal mobile */}
-      <PocketSummaryCard />
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-        <KPI
-          label="Patrimônio"
-          subtitle="Contas + investimentos"
-          value={netWorth}
-          icon={Wallet}
-          tone="primary"
-        />
+      {/* Patrimônio em destaque (full-width) + KPIs do mês */}
+      <PatrimonyHeroCard value={netWorth} />
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
         <KPI
           label="Entradas no mês"
           value={monthTotals.entradas}
