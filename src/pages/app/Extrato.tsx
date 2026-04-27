@@ -21,6 +21,7 @@ const Extrato = () => {
   const [search, setSearch] = useState("");
   const [account, setAccount] = useState("all");
   const [category, setCategory] = useState<string>(() => searchParams.get("category") ?? "all");
+  const [flow, setFlow] = useState<"all" | "entrada" | "saida">("all");
   const [visibleCount, setVisibleCount] = useState(PAGE_INCREMENT);
 
   // Sincroniza o filtro de categoria com a query string (?category=...).
@@ -91,9 +92,10 @@ const Extrato = () => {
       if (q && !t.description.toLowerCase().includes(q)) return false;
       if (account !== "all" && t.account !== account) return false;
       if (category !== "all" && t.category !== category) return false;
+      if (flow !== "all" && t.type !== flow) return false;
       return true;
     });
-  }, [monthTransactions, search, account, category]);
+  }, [monthTransactions, search, account, category, flow]);
 
   // Totais já considerando o filtro aplicado (busca/conta/categoria).
   const filteredTotals = useMemo(() => {
@@ -157,7 +159,17 @@ const Extrato = () => {
               className="pl-9 bg-input border-border h-9 md:h-10"
             />
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            <Select value={flow} onValueChange={(v) => setFlow(v as "all" | "entrada" | "saida")}>
+              <SelectTrigger className="flex-1 md:w-40 bg-input border-border h-9 md:h-10">
+                <SelectValue placeholder="Fluxo" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Entradas e saídas</SelectItem>
+                <SelectItem value="entrada">Apenas entradas</SelectItem>
+                <SelectItem value="saida">Apenas saídas</SelectItem>
+              </SelectContent>
+            </Select>
             <Select value={account} onValueChange={setAccount}>
               <SelectTrigger className="flex-1 md:w-48 bg-input border-border h-9 md:h-10">
                 <SelectValue placeholder="Conta" />
