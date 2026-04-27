@@ -33,14 +33,14 @@ const Configuracoes = () => {
   const previewLabel = useMemo(() => {
     const n = Number(draftDay);
     if (!Number.isFinite(n)) return "—";
-    const safe = Math.max(1, Math.min(28, Math.floor(n)));
+    const safe = Math.max(1, Math.min(31, Math.floor(n)));
     return formatCycleLabel(getCycleRange(safe, REFERENCE_DATE));
   }, [draftDay]);
 
   const handleSaveCycle = () => {
     const n = Number(draftDay);
-    if (!Number.isFinite(n) || n < 1 || n > 28) {
-      toast.error("Escolha um dia entre 1 e 28.");
+    if (!Number.isFinite(n) || n < 1 || n > 31) {
+      toast.error("Escolha um dia entre 1 e 31.");
       return;
     }
     setCycleDay(n);
