@@ -93,12 +93,15 @@ const Configuracoes = () => {
               id="cycleDay"
               type="number"
               min={1}
-              max={28}
+              max={31}
               value={draftDay}
               onChange={(e) => setDraftDay(e.target.value)}
               className="bg-input border-border"
             />
-            <p className="text-xs text-muted-foreground">Escolha um dia entre 1 e 28.</p>
+            <p className="text-xs text-muted-foreground">
+              Escolha um dia entre 1 e 31. Em meses com menos dias (ex.: fevereiro),
+              usamos automaticamente o último dia do mês — sua preferência fica salva.
+            </p>
           </div>
           <div className="rounded-lg border border-border bg-secondary/40 p-4">
             <p className="text-xs text-muted-foreground uppercase tracking-wider">Período atual</p>
