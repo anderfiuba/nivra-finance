@@ -13,7 +13,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useFinance } from "@/contexts/FinanceContext";
 import { toast } from "sonner";
 
-const DAYS = Array.from({ length: 28 }, (_, i) => i + 1);
+// Dia preferido do usuário: aceita 1–31. Quando o mês não tem o dia escolhido
+// (ex.: 31 em fevereiro), o sistema normaliza dinamicamente para o último dia
+// válido daquele mês — vide src/lib/cycle.ts → normalizeCycleDayForMonth.
+const DAYS = Array.from({ length: 31 }, (_, i) => i + 1);
 
 /**
  * Botão minimalista (ícone de engrenagem) que abre um diálogo para o usuário
@@ -31,7 +34,7 @@ export function CycleDaySettingsButton({ className }: { className?: string }) {
   }, [open, cycleDay]);
 
   const handleSave = () => {
-    const safe = Math.max(1, Math.min(28, Math.floor(draft)));
+    const safe = Math.max(1, Math.min(31, Math.floor(draft)));
     setCycleDay(safe);
     toast.success(`Ciclo financeiro definido para o dia ${safe}.`);
     setOpen(false);
@@ -76,7 +79,9 @@ export function CycleDaySettingsButton({ className }: { className?: string }) {
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              Ex.: dia 8 → o ciclo de abril vai de 09/mar a 08/abr.
+              Ex.: dia 8 → ciclo de abril vai de 09/mar a 08/abr. Se escolher 30
+              ou 31, em fevereiro usamos o último dia do mês (28 ou 29) — sem
+              alterar sua preferência salva.
             </p>
           </div>
 

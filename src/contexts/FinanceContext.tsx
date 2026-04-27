@@ -662,7 +662,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
 
       // Carrega cycle_day do profile do usuário (fonte de verdade — isolado por usuário).
       if (profileData && typeof profileData.cycle_day === "number") {
-        const day = Math.max(1, Math.min(28, Math.floor(profileData.cycle_day)));
+        const day = Math.max(1, Math.min(31, Math.floor(profileData.cycle_day)));
         setCycleDayState(day);
         try {
           window.localStorage.setItem(STORAGE_CYCLE, String(day));
@@ -732,7 +732,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
 
   const setCycleDay = useCallback(
     (day: number) => {
-      const safe = Math.max(1, Math.min(28, Math.floor(day)));
+      const safe = Math.max(1, Math.min(31, Math.floor(day)));
       setCycleDayState(safe);
       persistCycle(safe);
       // Persiste no profile do usuário para isolar entre dispositivos/sessões.

@@ -33,14 +33,14 @@ const Configuracoes = () => {
   const previewLabel = useMemo(() => {
     const n = Number(draftDay);
     if (!Number.isFinite(n)) return "—";
-    const safe = Math.max(1, Math.min(28, Math.floor(n)));
+    const safe = Math.max(1, Math.min(31, Math.floor(n)));
     return formatCycleLabel(getCycleRange(safe, REFERENCE_DATE));
   }, [draftDay]);
 
   const handleSaveCycle = () => {
     const n = Number(draftDay);
-    if (!Number.isFinite(n) || n < 1 || n > 28) {
-      toast.error("Escolha um dia entre 1 e 28.");
+    if (!Number.isFinite(n) || n < 1 || n > 31) {
+      toast.error("Escolha um dia entre 1 e 31.");
       return;
     }
     setCycleDay(n);
@@ -93,12 +93,15 @@ const Configuracoes = () => {
               id="cycleDay"
               type="number"
               min={1}
-              max={28}
+              max={31}
               value={draftDay}
               onChange={(e) => setDraftDay(e.target.value)}
               className="bg-input border-border"
             />
-            <p className="text-xs text-muted-foreground">Escolha um dia entre 1 e 28.</p>
+            <p className="text-xs text-muted-foreground">
+              Escolha um dia entre 1 e 31. Em meses com menos dias (ex.: fevereiro),
+              usamos automaticamente o último dia do mês — sua preferência fica salva.
+            </p>
           </div>
           <div className="rounded-lg border border-border bg-secondary/40 p-4">
             <p className="text-xs text-muted-foreground uppercase tracking-wider">Período atual</p>
