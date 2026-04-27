@@ -25,7 +25,7 @@ interface Props {
   mode?: "pending" | "edit";
 }
 
-const DAYS = Array.from({ length: 28 }, (_, i) => i + 1);
+const DAYS = Array.from({ length: 31 }, (_, i) => i + 1);
 
 /**
  * Banner para o usuário informar dia de fechamento + dia de vencimento de cada

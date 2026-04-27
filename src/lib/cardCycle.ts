@@ -21,6 +21,27 @@ export interface CycleWindow {
   dueDate: Date;
 }
 
+/**
+ * Quantos dias um determinado (ano, mês 0-indexado) tem.
+ * Truque clássico: dia 0 do mês seguinte = último dia do mês atual.
+ */
+function daysInMonth(year: number, monthZeroIndexed: number): number {
+  return new Date(year, monthZeroIndexed + 1, 0).getDate();
+}
+
+/**
+ * Normaliza o dia preferido (ex.: 31) para o último dia válido daquele mês.
+ * Ex.: 31 em fev/2025 → 28; 31 em fev/2024 (bissexto) → 29; 31 em abril → 30.
+ */
+export function normalizeCycleDayForMonth(
+  preferredDay: number,
+  year: number,
+  monthZeroIndexed: number,
+): number {
+  const safe = Math.max(1, Math.min(31, Math.floor(preferredDay)));
+  return Math.min(safe, daysInMonth(year, monthZeroIndexed));
+}
+
 function dayFromIso(iso: string | null | undefined): number | null {
   if (!iso) return null;
   // ISO date "YYYY-MM-DD" — extrai o dia direto sem passar por timezone.
@@ -28,7 +49,7 @@ function dayFromIso(iso: string | null | undefined): number | null {
   if (!m) return null;
   const d = Number(m[3]);
   if (!Number.isFinite(d) || d < 1 || d > 31) return null;
-  return Math.min(28, d);
+  return d;
 }
 
 export function resolveCycleDays(
@@ -54,17 +75,20 @@ export function computeCurrentCycleWindow(days: CycleDays, ref: Date = new Date(
 
 /** Janela do ciclo que CONTÉM `ref` (qualquer data). */
 export function computeCycleWindowFor(days: CycleDays, ref: Date): CycleWindow {
-  const closing = clampDay(days.closingDay);
-  const due = clampDay(days.dueDay);
+  const preferredClosing = clampPreferredDay(days.closingDay);
+  const preferredDue = clampPreferredDay(days.dueDay);
 
-  // Próximo fechamento >= ref
   const refY = ref.getFullYear();
   const refM = ref.getMonth();
   const refD = ref.getDate();
 
+  // Dia de fechamento normalizado para o mês de referência.
+  const closingInRefMonth = normalizeCycleDayForMonth(preferredClosing, refY, refM);
+
+  // Próximo fechamento >= ref (no mês ref ou no seguinte).
   let closeY: number;
   let closeM: number;
-  if (refD <= closing) {
+  if (refD <= closingInRefMonth) {
     closeY = refY;
     closeM = refM;
   } else {
@@ -75,28 +99,34 @@ export function computeCycleWindowFor(days: CycleDays, ref: Date): CycleWindow {
       closeY += 1;
     }
   }
-  const closingDate = new Date(closeY, closeM, closing, 23, 59, 59, 999);
+  const closingDay = normalizeCycleDayForMonth(preferredClosing, closeY, closeM);
+  const closingDate = new Date(closeY, closeM, closingDay, 23, 59, 59, 999);
 
-  // Início = dia seguinte ao fechamento anterior
-  let startM = closeM - 1;
-  let startY = closeY;
-  if (startM < 0) {
-    startM = 11;
-    startY -= 1;
+  // Início = dia seguinte ao fechamento anterior (continuidade temporal sem buracos).
+  let prevM = closeM - 1;
+  let prevY = closeY;
+  if (prevM < 0) {
+    prevM = 11;
+    prevY -= 1;
   }
-  const start = new Date(startY, startM, closing + 1, 0, 0, 0, 0);
+  const prevClosingDay = normalizeCycleDayForMonth(preferredClosing, prevY, prevM);
+  const startBase = new Date(prevY, prevM, prevClosingDay, 0, 0, 0, 0);
+  const start = new Date(startBase.getTime() + 24 * 60 * 60 * 1000);
+  start.setHours(0, 0, 0, 0);
 
-  // Vencimento: se due >= closing → mesmo mês; senão → mês seguinte.
+  // Vencimento: se due >= closing → mesmo mês de fechamento; senão → mês seguinte.
+  // Comparação feita com o dia preferido (1..31) para preservar a regra do usuário.
   let dueY = closeY;
   let dueM = closeM;
-  if (due < closing) {
+  if (preferredDue < preferredClosing) {
     dueM += 1;
     if (dueM > 11) {
       dueM = 0;
       dueY += 1;
     }
   }
-  const dueDate = new Date(dueY, dueM, due, 0, 0, 0, 0);
+  const dueDay = normalizeCycleDayForMonth(preferredDue, dueY, dueM);
+  const dueDate = new Date(dueY, dueM, dueDay, 0, 0, 0, 0);
 
   return { start, closingDate, dueDate };
 }
@@ -107,8 +137,8 @@ export function computeNextCycleWindow(days: CycleDays, current: CycleWindow): C
   return computeCycleWindowFor(days, refNext);
 }
 
-function clampDay(n: number): number {
-  return Math.max(1, Math.min(28, Math.floor(n)));
+function clampPreferredDay(n: number): number {
+  return Math.max(1, Math.min(31, Math.floor(n)));
 }
 
 const MONTHS_PT_SHORT = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
