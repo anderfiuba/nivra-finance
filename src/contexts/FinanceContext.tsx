@@ -357,7 +357,27 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         ),
       );
 
-      let txData: Array<Record<string, unknown>> = [];
+      type TxRow = {
+        id: string;
+        description: string;
+        amount: number | string;
+        amount_in_account_currency: number | string | null;
+        currency: string;
+        account_currency: string | null;
+        transaction_date: string;
+        category: string | null;
+        category_pluggy: string | null;
+        category_id: string | null;
+        pluggy_account_id: string;
+        pluggy_item_id: string;
+        status: string | null;
+        operation_type: string | null;
+        merchant_name: string | null;
+        installment_number: number | null;
+        total_installments: number | null;
+        type: string | null;
+      };
+      let txData: TxRow[] = [];
       if (itemIds.length === 0) {
         // Fallback: nenhuma conexão mapeada → busca direta limitada
         // ao primeiro chunk para evitar varredura completa.
@@ -366,11 +386,11 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           .select(TX_SELECT)
           .order("transaction_date", { ascending: false })
           .range(0, TX_PAGE_SIZE - 1);
-        txData = (data ?? []) as Array<Record<string, unknown>>;
+        txData = (data ?? []) as unknown as TxRow[];
       } else {
         const perItemResults = await Promise.all(
           itemIds.map(async (itemId) => {
-            const acc: Array<Record<string, unknown>> = [];
+            const acc: TxRow[] = [];
             for (let offset = 0; offset < TX_LIMIT_PER_ITEM; offset += TX_PAGE_SIZE) {
               const upper = Math.min(offset + TX_PAGE_SIZE, TX_LIMIT_PER_ITEM) - 1;
               const { data, error } = await supabase
@@ -383,7 +403,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
                 console.error("[finance] tx page failed", { itemId, offset, error });
                 break;
               }
-              const rows = (data ?? []) as Array<Record<string, unknown>>;
+              const rows = (data ?? []) as unknown as TxRow[];
               acc.push(...rows);
               if (rows.length < (upper - offset + 1)) break; // fim do conjunto
             }
@@ -393,9 +413,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         txData = perItemResults.flat();
         // Reordena globalmente por data desc para manter contrato anterior.
         txData.sort((a, b) => {
-          const da = String(a.transaction_date ?? "");
-          const db = String(b.transaction_date ?? "");
-          return db.localeCompare(da);
+          return String(b.transaction_date ?? "").localeCompare(String(a.transaction_date ?? ""));
         });
       }
 
