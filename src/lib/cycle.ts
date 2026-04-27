@@ -6,19 +6,53 @@ export interface CycleRange {
 }
 
 /**
- * Calcula o intervalo do "mês financeiro" do usuário com base no dia de fechamento.
- * Ex.: cycleDay=8 e ref dentro de abril → 09/mar/00:00 a 08/abr/23:59
- *      cycleDay=8 e ref no dia 15/abr → 09/abr/00:00 a 08/mai/23:59
+ * Quantos dias um determinado (ano, mês 0-indexado) tem.
+ * Truque clássico: dia 0 do mês seguinte = último dia do mês atual.
+ */
+function daysInMonth(year: number, monthZeroIndexed: number): number {
+  return new Date(year, monthZeroIndexed + 1, 0).getDate();
+}
+
+/**
+ * Normaliza o dia preferido do usuário (ex.: 31) para o último dia válido
+ * de um mês específico. Ex.: 31 em fevereiro → 28 (ou 29 em ano bissexto);
+ * 30 em fevereiro → 28/29; 31 em abril → 30.
+ */
+export function normalizeCycleDayForMonth(
+  preferredDay: number,
+  year: number,
+  monthZeroIndexed: number,
+): number {
+  const safe = Math.max(1, Math.min(31, Math.floor(preferredDay)));
+  return Math.min(safe, daysInMonth(year, monthZeroIndexed));
+}
+
+/**
+ * Calcula o intervalo do "mês financeiro" do usuário com base no dia de
+ * fechamento PREFERIDO. O valor preferido (1–31) é preservado como referência;
+ * a normalização para o último dia válido acontece dinamicamente em cada mês.
+ *
+ *   cycleDay=8  e ref dentro de abril/2026 → 09/mar a 08/abr
+ *   cycleDay=31 e ref em fev/2025 (não-bissexto) → 01/fev a 28/fev
+ *   cycleDay=31 e ref em fev/2024 (bissexto)     → 01/fev a 29/fev
+ *   cycleDay=31 e ref em abril (30 dias)         → 01/abr a 30/abr
+ *   cycleDay=30 e ref em fev/2025                → 01/fev a 28/fev
+ *
+ * Quando o end é "encurtado" (ex.: 28/fev), o start permanece sendo o dia
+ * SEGUINTE ao end do ciclo anterior — preservando continuidade temporal.
  */
 export function getCycleRange(cycleDay: number, ref: Date = new Date()): CycleRange {
-  const day = Math.max(1, Math.min(28, Math.floor(cycleDay)));
+  const preferred = Math.max(1, Math.min(31, Math.floor(cycleDay)));
   const refY = ref.getFullYear();
   const refM = ref.getMonth();
   const refD = ref.getDate();
 
+  // Dia "alvo" no mês de referência (já normalizado para esse mês).
+  const dayInRefMonth = normalizeCycleDayForMonth(preferred, refY, refM);
+
   let endY: number;
   let endM: number;
-  if (refD <= day) {
+  if (refD <= dayInRefMonth) {
     endY = refY;
     endM = refM;
   } else {
@@ -30,16 +64,25 @@ export function getCycleRange(cycleDay: number, ref: Date = new Date()): CycleRa
     }
   }
 
-  const end = new Date(endY, endM, day, 23, 59, 59, 999);
+  // Normaliza o dia para o mês do END (pode ser diferente do mês ref).
+  const endDay = normalizeCycleDayForMonth(preferred, endY, endM);
+  const end = new Date(endY, endM, endDay, 23, 59, 59, 999);
 
-  // start = day+1 do mês anterior ao do end
+  // O START deve ser EXATAMENTE 1 dia após o END do ciclo anterior, garantindo
+  // continuidade temporal mesmo quando o ciclo anterior foi encurtado (ex.: fev).
+  // Em vez de calcular "(day+1) do mês anterior" — que falha se o mês anterior
+  // tinha menos dias —, derivamos: start = end_do_ciclo_anterior + 1 dia.
   let startM = endM - 1;
   let startY = endY;
   if (startM < 0) {
     startM = 11;
     startY -= 1;
   }
-  const start = new Date(startY, startM, day + 1, 0, 0, 0, 0);
+  const prevEndDay = normalizeCycleDayForMonth(preferred, startY, startM);
+  // start = (prevEnd + 1 dia) à meia-noite local.
+  const startBase = new Date(startY, startM, prevEndDay, 0, 0, 0, 0);
+  const start = new Date(startBase.getTime() + 24 * 60 * 60 * 1000);
+  start.setHours(0, 0, 0, 0);
 
   return { start, end };
 }
