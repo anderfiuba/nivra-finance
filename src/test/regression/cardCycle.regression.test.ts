@@ -6,6 +6,8 @@ import {
   daysUntil,
   formatDueLabel,
   formatShortDateFromIso,
+  computeCycleWindowFor,
+  normalizeCycleDayForMonth,
 } from "@/lib/cardCycle";
 
 describe("[REG] Cartão de crédito — ciclos", () => {
@@ -66,5 +68,52 @@ describe("[REG] Cartão de crédito — ciclos", () => {
     expect(formatShortDateFromIso("2026-04-08")).toBe("08/04");
     expect(formatShortDateFromIso(null)).toBe("—");
     expect(formatShortDateFromIso("xx")).toBe("—");
+  });
+
+  // ===== Normalização para meses curtos (mesma regra do ciclo do usuário) =====
+
+  it("normalizeCycleDayForMonth: 31 em fev/2025 (não bissexto) → 28", () => {
+    expect(normalizeCycleDayForMonth(31, 2025, 1)).toBe(28);
+  });
+
+  it("normalizeCycleDayForMonth: 31 em fev/2024 (bissexto) → 29", () => {
+    expect(normalizeCycleDayForMonth(31, 2024, 1)).toBe(29);
+  });
+
+  it("normalizeCycleDayForMonth: 31 em abril (30 dias) → 30", () => {
+    expect(normalizeCycleDayForMonth(31, 2026, 3)).toBe(30);
+  });
+
+  it("fechamento 31 em fev/2025 → janela fecha em 28/fev", () => {
+    const w = computeCycleWindowFor({ closingDay: 31, dueDay: 10 }, new Date(2025, 1, 10));
+    expect(w.closingDate.getDate()).toBe(28);
+    expect(w.closingDate.getMonth()).toBe(1); // fev
+    // start = dia seguinte ao fechamento de jan (31) → 01/fev
+    expect(w.start.getDate()).toBe(1);
+    expect(w.start.getMonth()).toBe(1);
+  });
+
+  it("fechamento 31 em fev/2024 (bissexto) → fecha em 29/fev", () => {
+    const w = computeCycleWindowFor({ closingDay: 31, dueDay: 10 }, new Date(2024, 1, 10));
+    expect(w.closingDate.getDate()).toBe(29);
+    expect(w.closingDate.getMonth()).toBe(1);
+  });
+
+  it("fechamento 30 em fev/2025 → fecha em 28/fev", () => {
+    const w = computeCycleWindowFor({ closingDay: 30, dueDay: 5 }, new Date(2025, 1, 15));
+    expect(w.closingDate.getDate()).toBe(28);
+    expect(w.closingDate.getMonth()).toBe(1);
+  });
+
+  it("continuidade: dia seguinte ao fechamento de um ciclo = início do próximo", () => {
+    const days = { closingDay: 31, dueDay: 10 };
+    const cur = computeCycleWindowFor(days, new Date(2025, 1, 10)); // fechou 28/fev
+    const nxt = computeNextCycleWindow(days, cur);
+    // Próximo start deve ser 01/mar
+    expect(nxt.start.getDate()).toBe(1);
+    expect(nxt.start.getMonth()).toBe(2); // mar
+    // Próximo fechamento = 31/mar (mês cheio)
+    expect(nxt.closingDate.getDate()).toBe(31);
+    expect(nxt.closingDate.getMonth()).toBe(2);
   });
 });
