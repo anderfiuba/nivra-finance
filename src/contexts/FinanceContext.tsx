@@ -288,7 +288,6 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     try {
       const [
         { data: accData },
-        { data: txData },
         { data: catData },
         { data: billData },
         { data: budgetData },
@@ -303,13 +302,6 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
             "id,pluggy_account_id,pluggy_item_id,name,marketing_name,type,subtype,balance,currency,credit_limit,available_credit_limit,balance_due_date,balance_close_date,minimum_payment,card_brand,card_number_last4,automatically_invested_balance",
           )
           .order("name", { ascending: true }),
-        supabase
-          .from("pluggy_transactions")
-          .select(
-            "id,description,amount,amount_in_account_currency,currency,account_currency,transaction_date,category,category_pluggy,category_id,pluggy_account_id,status,operation_type,merchant_name,installment_number,total_installments,type",
-          )
-          .order("transaction_date", { ascending: false })
-          .limit(5000),
         supabase
           .from("pluggy_categories")
           .select("id,description,description_translated,parent_id,parent_description")
@@ -344,6 +336,68 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           .eq("id", user.id)
           .maybeSingle(),
       ]);
+
+      // ============================================================
+      // Carregamento de transações: PAGINADO E POR ITEM (conexão).
+      // PostgREST limita a 1000 linhas por request. Para garantir até
+      // 5000 transações POR conexão (item Pluggy) — e não um teto
+      // global do usuário — buscamos cada item em paralelo, paginando
+      // em chunks de 1000 até atingir TX_LIMIT_PER_ITEM.
+      // ============================================================
+      const TX_LIMIT_PER_ITEM = 5000;
+      const TX_PAGE_SIZE = 1000;
+      const TX_SELECT =
+        "id,description,amount,amount_in_account_currency,currency,account_currency,transaction_date,category,category_pluggy,category_id,pluggy_account_id,pluggy_item_id,status,operation_type,merchant_name,installment_number,total_installments,type";
+
+      const itemIds = Array.from(
+        new Set(
+          (itemData ?? [])
+            .map((it) => it.pluggy_item_id)
+            .filter((id): id is string => Boolean(id)),
+        ),
+      );
+
+      let txData: Array<Record<string, unknown>> = [];
+      if (itemIds.length === 0) {
+        // Fallback: nenhuma conexão mapeada → busca direta limitada
+        // ao primeiro chunk para evitar varredura completa.
+        const { data } = await supabase
+          .from("pluggy_transactions")
+          .select(TX_SELECT)
+          .order("transaction_date", { ascending: false })
+          .range(0, TX_PAGE_SIZE - 1);
+        txData = (data ?? []) as Array<Record<string, unknown>>;
+      } else {
+        const perItemResults = await Promise.all(
+          itemIds.map(async (itemId) => {
+            const acc: Array<Record<string, unknown>> = [];
+            for (let offset = 0; offset < TX_LIMIT_PER_ITEM; offset += TX_PAGE_SIZE) {
+              const upper = Math.min(offset + TX_PAGE_SIZE, TX_LIMIT_PER_ITEM) - 1;
+              const { data, error } = await supabase
+                .from("pluggy_transactions")
+                .select(TX_SELECT)
+                .eq("pluggy_item_id", itemId)
+                .order("transaction_date", { ascending: false })
+                .range(offset, upper);
+              if (error) {
+                console.error("[finance] tx page failed", { itemId, offset, error });
+                break;
+              }
+              const rows = (data ?? []) as Array<Record<string, unknown>>;
+              acc.push(...rows);
+              if (rows.length < (upper - offset + 1)) break; // fim do conjunto
+            }
+            return acc;
+          }),
+        );
+        txData = perItemResults.flat();
+        // Reordena globalmente por data desc para manter contrato anterior.
+        txData.sort((a, b) => {
+          const da = String(a.transaction_date ?? "");
+          const db = String(b.transaction_date ?? "");
+          return db.localeCompare(da);
+        });
+      }
 
       // Index pluggy_items por pluggy_item_id pra resolver logo/cor/sync.
       type ItemMeta = {
