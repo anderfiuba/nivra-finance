@@ -7,9 +7,10 @@ import { Link } from "react-router-dom";
 import { AccountGroupCard } from "@/components/contas/AccountGroupCard";
 import { AccountRow } from "@/components/contas/AccountRow";
 import { ConnectionRow } from "@/components/contas/ConnectionRow";
+import { InvestmentRow } from "@/components/contas/InvestmentRow";
 
 const Contas = () => {
-  const { accounts, items, transactions, isLoading, refresh } = useFinance();
+  const { accounts, items, transactions, investments, investmentsTotal, isLoading, refresh } = useFinance();
 
   const creditCards = accounts.filter((a) => (a.type ?? "").toUpperCase() === "CREDIT");
   const bankAccounts = accounts.filter((a) => (a.type ?? "").toUpperCase() !== "CREDIT");
@@ -40,7 +41,7 @@ const Contas = () => {
   // Total contas = soma direta dos saldos
   const bankTotal = bankAccounts.reduce((sum, a) => sum + (a.balance ?? 0), 0);
 
-  const hasAnything = accounts.length > 0 || items.length > 0;
+  const hasAnything = accounts.length > 0 || items.length > 0 || investments.length > 0;
 
   return (
     <div className="p-4 sm:p-6 md:p-8 space-y-5 max-w-[1600px] mx-auto">
@@ -114,6 +115,19 @@ const Contas = () => {
                   variant="bank"
                   balanceLikelyIncomplete={incompleteFlags[acc.id]}
                 />
+              ))}
+            </AccountGroupCard>
+          )}
+
+          {investments.length > 0 && (
+            <AccountGroupCard
+              title="Investimentos"
+              count={investments.length}
+              totalTone="positive"
+              totalValue={investmentsTotal}
+            >
+              {investments.map((inv) => (
+                <InvestmentRow key={inv.id} investment={inv} />
               ))}
             </AccountGroupCard>
           )}

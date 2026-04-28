@@ -121,6 +121,33 @@ export interface PluggyItemSummary {
   accountCount: number;
 }
 
+/**
+ * Posição de investimento (do endpoint /investments da Pluggy).
+ * Universal: serve para qualquer conector PF (CDB, Tesouro, Fundos, Ações...).
+ */
+export interface FinanceInvestment {
+  id: string;
+  pluggyInvestmentId: string;
+  pluggyItemId: string;
+  pluggyAccountId: string | null;
+  name: string;
+  type: string | null;
+  subtype: string | null;
+  /** Saldo atual da posição. */
+  balance: number;
+  /** Valor aplicado original (quando informado). */
+  amountOriginal: number | null;
+  /** Lucro acumulado (quando informado). */
+  amountProfit: number | null;
+  currency: string;
+  issuer: string | null;
+  dueDate: string | null;
+  /** Logo do conector — vem de pluggy_items. */
+  connectorImageUrl: string | null;
+  connectorPrimaryColor: string | null;
+  connectorName: string | null;
+}
+
 export type BudgetStatus = "ok" | "alert" | "over";
 export interface BudgetProgress {
   categoryLabel: string;
@@ -147,6 +174,9 @@ interface FinanceContextValue {
   transactions: Transaction[];
   accounts: FinanceAccount[];
   items: PluggyItemSummary[];
+  investments: FinanceInvestment[];
+  /** Soma dos balances dos investimentos (em BRL). */
+  investmentsTotal: number;
   totalBalance: number;
   /** Patrimônio = saldo de contas BANK + saldos investidos. Cartões não entram. */
   netWorth: number;
@@ -264,6 +294,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
   const [items, setItems] = useState<PluggyItemSummary[]>([]);
+  const [investments, setInvestments] = useState<FinanceInvestment[]>([]);
   const [categories, setCategories] = useState<PluggyCategoryNode[]>([]);
   const [bills, setBills] = useState<FinanceBill[]>([]);
   const [categoryBudgets, setCategoryBudgets] = useState<CategoryBudget[]>([]);
@@ -282,6 +313,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       setCategoryBudgets([]);
       setTotalBudget(null);
       setCardCycleSettings({});
+      setInvestments([]);
       return;
     }
     setIsLoading(true);
@@ -295,6 +327,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         { data: cycleData },
         { data: totalBudgetData },
         { data: profileData },
+        { data: invData },
       ] = await Promise.all([
         supabase
           .from("pluggy_accounts")
@@ -335,6 +368,12 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           .select("cycle_day")
           .eq("id", user.id)
           .maybeSingle(),
+        supabase
+          .from("pluggy_investments")
+          .select(
+            "id,pluggy_investment_id,pluggy_item_id,pluggy_account_id,name,type,subtype,balance,amount_original,amount_profit,currency,issuer,due_date",
+          )
+          .order("balance", { ascending: false }),
       ]);
 
       // ============================================================
@@ -492,6 +531,31 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           lastSyncedAt: it.last_synced_at ?? it.updated_at ?? null,
           accountCount: accountsByItem.get(it.pluggy_item_id) ?? 0,
         })),
+      );
+
+      // Mapeia investimentos enriquecendo com metadata do conector (logo/cor).
+      setInvestments(
+        (invData ?? []).map((iv) => {
+          const meta = iv.pluggy_item_id ? itemMap.get(iv.pluggy_item_id) ?? null : null;
+          return {
+            id: iv.id,
+            pluggyInvestmentId: iv.pluggy_investment_id,
+            pluggyItemId: iv.pluggy_item_id,
+            pluggyAccountId: iv.pluggy_account_id ?? null,
+            name: iv.name,
+            type: iv.type ?? null,
+            subtype: iv.subtype ?? null,
+            balance: Number(iv.balance ?? 0),
+            amountOriginal: iv.amount_original !== null && iv.amount_original !== undefined ? Number(iv.amount_original) : null,
+            amountProfit: iv.amount_profit !== null && iv.amount_profit !== undefined ? Number(iv.amount_profit) : null,
+            currency: iv.currency ?? "BRL",
+            issuer: iv.issuer ?? null,
+            dueDate: iv.due_date ?? null,
+            connectorImageUrl: meta?.connectorImageUrl ?? null,
+            connectorPrimaryColor: meta?.connectorPrimaryColor ?? null,
+            connectorName: meta?.connectorName ?? null,
+          } as FinanceInvestment;
+        }),
       );
 
       setCategories(
@@ -713,6 +777,11 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "category_budgets", filter: `user_id=eq.${user.id}` },
+        () => refresh(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "pluggy_investments", filter: `user_id=eq.${user.id}` },
         () => refresh(),
       )
       .subscribe();
@@ -1239,23 +1308,33 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     }, 0);
   }, [accounts]);
 
-  // Patrimônio = saldo de contas (BANK/INVESTMENT) + saldo automaticamente investido.
+  // Soma dos investimentos retornados por /investments.
+  const investmentsTotal = useMemo(
+    () => investments.reduce((sum, i) => sum + (i.balance ?? 0), 0),
+    [investments],
+  );
+
+  // Patrimônio = saldo de contas BANK + posições de investimento.
   // Cartões (CREDIT) ficam de fora — fatura aberta não é dívida líquida do patrimônio.
+  // Importante: o `balance` retornado pelo Pluggy para contas BANK JÁ inclui o
+  // `automatically_invested_balance` (parcela do saldo que está rendendo dentro
+  // da própria conta). Os investimentos do endpoint /investments são posições
+  // SEPARADAS (CDB, Tesouro, Fundos, Ações...) e somam-se ao patrimônio.
   const netWorth = useMemo(() => {
-    return accounts.reduce((sum, a) => {
+    const bankSum = accounts.reduce((sum, a) => {
       const type = (a.type ?? "").toUpperCase();
       if (type === "CREDIT") return sum;
-      // IMPORTANTE: o `balance` retornado pelo Pluggy para contas BANK JÁ inclui
-      // o `automatically_invested_balance` (que é apenas a parcela do saldo que
-      // está rendendo). Somar os dois duplicaria o valor — usar só `balance`.
       return sum + (a.balance ?? 0);
     }, 0);
-  }, [accounts]);
+    return bankSum + investmentsTotal;
+  }, [accounts, investmentsTotal]);
 
   const value: FinanceContextValue = {
     transactions,
     accounts,
     items,
+    investments,
+    investmentsTotal,
     totalBalance,
     netWorth,
     isLoading,

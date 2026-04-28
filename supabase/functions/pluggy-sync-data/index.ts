@@ -91,6 +91,36 @@ interface PluggyBill {
   payments?: unknown;
 }
 
+interface PluggyInvestment {
+  id: string;
+  itemId?: string | null;
+  accountId?: string | null;
+  name: string;
+  code?: string | null;
+  isin?: string | null;
+  type?: string | null;
+  subtype?: string | null;
+  balance?: number | null;
+  amount?: number | null;
+  amountOriginal?: number | null;
+  amountProfit?: number | null;
+  amountWithdrawal?: number | null;
+  quantity?: number | null;
+  value?: number | null;
+  rate?: number | null;
+  rateType?: string | null;
+  fixedAnnualRate?: number | null;
+  date?: string | null;
+  dueDate?: string | null;
+  issueDate?: string | null;
+  issuer?: string | null;
+  issuerId?: string | null;
+  status?: string | null;
+  currencyCode?: string | null;
+  taxNumber?: string | null;
+  owner?: string | null;
+}
+
 const PAGE_SIZE = 500;
 
 async function fetchAllTransactions(accountId: string): Promise<PluggyTransaction[]> {
@@ -137,6 +167,33 @@ async function fetchAllBills(accountId: string): Promise<PluggyBill[]> {
     if (page >= (data.totalPages ?? 1)) break;
     page += 1;
     if (page > 10) break;
+  }
+  return all;
+}
+
+/**
+ * Busca TODOS os investimentos de um item Pluggy.
+ * Conforme docs: GET /investments?itemId=... — paginado.
+ * Universal: serve para qualquer conector PF que exponha o produto Investments
+ * (Nubank, Itaú, BB, Inter, BTG, XP, Rico, Clear, etc.).
+ */
+async function fetchAllInvestments(itemId: string): Promise<PluggyInvestment[]> {
+  const all: PluggyInvestment[] = [];
+  let page = 1;
+  while (true) {
+    const url = `/investments?itemId=${encodeURIComponent(itemId)}&pageSize=200&page=${page}`;
+    const res = await pluggyFetch(url, { method: "GET" });
+    if (!res.ok) {
+      // Nem todos os conectores expõem /investments — não derruba o sync.
+      const body = await res.text();
+      console.warn("pluggy /investments falhou", res.status, body);
+      return all;
+    }
+    const data = (await res.json()) as { results?: PluggyInvestment[]; totalPages?: number };
+    all.push(...(data.results ?? []));
+    if (page >= (data.totalPages ?? 1)) break;
+    page += 1;
+    if (page > 20) break; // safety
   }
   return all;
 }
@@ -442,6 +499,61 @@ Deno.serve(async (req) => {
       }
     }
 
+    // 3.1 Sincroniza investimentos do item (universal: qualquer conector PF
+    //     que retorne /investments — Pluggy normaliza CDB, Tesouro, Fundos,
+    //     Ações, ETFs, COE etc.). Quando o conector não suporta, a função
+    //     retorna [] e seguimos.
+    let totalInvestments = 0;
+    try {
+      const invs = await fetchAllInvestments(body.itemId!);
+      if (invs.length > 0) {
+        const invRows = invs.map((iv) => ({
+          user_id: userId,
+          pluggy_investment_id: iv.id,
+          pluggy_item_id: body.itemId!,
+          pluggy_account_id: iv.accountId ?? null,
+          name: iv.name ?? "Investimento",
+          code: iv.code ?? null,
+          isin: iv.isin ?? null,
+          type: iv.type ?? null,
+          subtype: iv.subtype ?? null,
+          balance: typeof iv.balance === "number" ? iv.balance : 0,
+          amount: typeof iv.amount === "number" ? iv.amount : null,
+          amount_original: typeof iv.amountOriginal === "number" ? iv.amountOriginal : null,
+          amount_profit: typeof iv.amountProfit === "number" ? iv.amountProfit : null,
+          amount_withdrawal: typeof iv.amountWithdrawal === "number" ? iv.amountWithdrawal : null,
+          quantity: typeof iv.quantity === "number" ? iv.quantity : null,
+          value: typeof iv.value === "number" ? iv.value : null,
+          rate: typeof iv.rate === "number" ? iv.rate : null,
+          rate_type: iv.rateType ?? null,
+          fixed_annual_rate: typeof iv.fixedAnnualRate === "number" ? iv.fixedAnnualRate : null,
+          date: iv.date ? iv.date.slice(0, 10) : null,
+          due_date: iv.dueDate ? iv.dueDate.slice(0, 10) : null,
+          issue_date: iv.issueDate ? iv.issueDate.slice(0, 10) : null,
+          issuer: iv.issuer ?? null,
+          issuer_id: iv.issuerId ?? null,
+          status: iv.status ?? null,
+          currency: iv.currencyCode ?? "BRL",
+          tax_number: iv.taxNumber ?? null,
+          owner: iv.owner ?? null,
+          raw_payload: iv as unknown as Record<string, unknown>,
+        }));
+        for (let i = 0; i < invRows.length; i += 200) {
+          const chunk = invRows.slice(i, i + 200);
+          const { error: invErr } = await adminClient
+            .from("pluggy_investments")
+            .upsert(chunk, { onConflict: "pluggy_investment_id" });
+          if (invErr) {
+            console.error("upsert pluggy_investments failed", invErr);
+            break;
+          }
+        }
+        totalInvestments = invRows.length;
+      }
+    } catch (invExc) {
+      console.warn("pluggy investments sync exception", invExc);
+    }
+
     // 4. Atualiza status do item
     await adminClient
       .from("pluggy_items")
@@ -460,6 +572,7 @@ Deno.serve(async (req) => {
         transactions: totalTx,
         bills: totalBills,
         paidInferred: totalPaidInferred,
+        investments: totalInvestments,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );

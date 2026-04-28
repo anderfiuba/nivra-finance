@@ -92,6 +92,7 @@ Deno.serve(async (req) => {
     const tables = [
       "pluggy_transactions",
       "pluggy_bills",
+      "pluggy_investments",
       "pluggy_accounts",
       "pluggy_items",
       "category_budgets",

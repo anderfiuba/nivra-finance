@@ -293,6 +293,111 @@ export type Database = {
         }
         Relationships: []
       }
+      pluggy_investments: {
+        Row: {
+          amount: number | null
+          amount_original: number | null
+          amount_profit: number | null
+          amount_withdrawal: number | null
+          balance: number
+          code: string | null
+          created_at: string
+          currency: string
+          date: string | null
+          due_date: string | null
+          fixed_annual_rate: number | null
+          id: string
+          isin: string | null
+          issue_date: string | null
+          issuer: string | null
+          issuer_id: string | null
+          name: string
+          owner: string | null
+          pluggy_account_id: string | null
+          pluggy_investment_id: string
+          pluggy_item_id: string
+          quantity: number | null
+          rate: number | null
+          rate_type: string | null
+          raw_payload: Json | null
+          status: string | null
+          subtype: string | null
+          tax_number: string | null
+          type: string | null
+          updated_at: string
+          user_id: string
+          value: number | null
+        }
+        Insert: {
+          amount?: number | null
+          amount_original?: number | null
+          amount_profit?: number | null
+          amount_withdrawal?: number | null
+          balance?: number
+          code?: string | null
+          created_at?: string
+          currency?: string
+          date?: string | null
+          due_date?: string | null
+          fixed_annual_rate?: number | null
+          id?: string
+          isin?: string | null
+          issue_date?: string | null
+          issuer?: string | null
+          issuer_id?: string | null
+          name: string
+          owner?: string | null
+          pluggy_account_id?: string | null
+          pluggy_investment_id: string
+          pluggy_item_id: string
+          quantity?: number | null
+          rate?: number | null
+          rate_type?: string | null
+          raw_payload?: Json | null
+          status?: string | null
+          subtype?: string | null
+          tax_number?: string | null
+          type?: string | null
+          updated_at?: string
+          user_id: string
+          value?: number | null
+        }
+        Update: {
+          amount?: number | null
+          amount_original?: number | null
+          amount_profit?: number | null
+          amount_withdrawal?: number | null
+          balance?: number
+          code?: string | null
+          created_at?: string
+          currency?: string
+          date?: string | null
+          due_date?: string | null
+          fixed_annual_rate?: number | null
+          id?: string
+          isin?: string | null
+          issue_date?: string | null
+          issuer?: string | null
+          issuer_id?: string | null
+          name?: string
+          owner?: string | null
+          pluggy_account_id?: string | null
+          pluggy_investment_id?: string
+          pluggy_item_id?: string
+          quantity?: number | null
+          rate?: number | null
+          rate_type?: string | null
+          raw_payload?: Json | null
+          status?: string | null
+          subtype?: string | null
+          tax_number?: string | null
+          type?: string | null
+          updated_at?: string
+          user_id?: string
+          value?: number | null
+        }
+        Relationships: []
+      }
       pluggy_items: {
         Row: {
           client_user_id: string
