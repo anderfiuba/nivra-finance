@@ -91,6 +91,36 @@ interface PluggyBill {
   payments?: unknown;
 }
 
+interface PluggyInvestment {
+  id: string;
+  itemId?: string | null;
+  accountId?: string | null;
+  name: string;
+  code?: string | null;
+  isin?: string | null;
+  type?: string | null;
+  subtype?: string | null;
+  balance?: number | null;
+  amount?: number | null;
+  amountOriginal?: number | null;
+  amountProfit?: number | null;
+  amountWithdrawal?: number | null;
+  quantity?: number | null;
+  value?: number | null;
+  rate?: number | null;
+  rateType?: string | null;
+  fixedAnnualRate?: number | null;
+  date?: string | null;
+  dueDate?: string | null;
+  issueDate?: string | null;
+  issuer?: string | null;
+  issuerId?: string | null;
+  status?: string | null;
+  currencyCode?: string | null;
+  taxNumber?: string | null;
+  owner?: string | null;
+}
+
 const PAGE_SIZE = 500;
 
 async function fetchAllTransactions(accountId: string): Promise<PluggyTransaction[]> {
@@ -137,6 +167,33 @@ async function fetchAllBills(accountId: string): Promise<PluggyBill[]> {
     if (page >= (data.totalPages ?? 1)) break;
     page += 1;
     if (page > 10) break;
+  }
+  return all;
+}
+
+/**
+ * Busca TODOS os investimentos de um item Pluggy.
+ * Conforme docs: GET /investments?itemId=... — paginado.
+ * Universal: serve para qualquer conector PF que exponha o produto Investments
+ * (Nubank, Itaú, BB, Inter, BTG, XP, Rico, Clear, etc.).
+ */
+async function fetchAllInvestments(itemId: string): Promise<PluggyInvestment[]> {
+  const all: PluggyInvestment[] = [];
+  let page = 1;
+  while (true) {
+    const url = `/investments?itemId=${encodeURIComponent(itemId)}&pageSize=200&page=${page}`;
+    const res = await pluggyFetch(url, { method: "GET" });
+    if (!res.ok) {
+      // Nem todos os conectores expõem /investments — não derruba o sync.
+      const body = await res.text();
+      console.warn("pluggy /investments falhou", res.status, body);
+      return all;
+    }
+    const data = (await res.json()) as { results?: PluggyInvestment[]; totalPages?: number };
+    all.push(...(data.results ?? []));
+    if (page >= (data.totalPages ?? 1)) break;
+    page += 1;
+    if (page > 20) break; // safety
   }
   return all;
 }
