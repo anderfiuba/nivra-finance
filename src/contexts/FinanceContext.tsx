@@ -1303,23 +1303,33 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     }, 0);
   }, [accounts]);
 
-  // Patrimônio = saldo de contas (BANK/INVESTMENT) + saldo automaticamente investido.
+  // Soma dos investimentos retornados por /investments.
+  const investmentsTotal = useMemo(
+    () => investments.reduce((sum, i) => sum + (i.balance ?? 0), 0),
+    [investments],
+  );
+
+  // Patrimônio = saldo de contas BANK + posições de investimento.
   // Cartões (CREDIT) ficam de fora — fatura aberta não é dívida líquida do patrimônio.
+  // Importante: o `balance` retornado pelo Pluggy para contas BANK JÁ inclui o
+  // `automatically_invested_balance` (parcela do saldo que está rendendo dentro
+  // da própria conta). Os investimentos do endpoint /investments são posições
+  // SEPARADAS (CDB, Tesouro, Fundos, Ações...) e somam-se ao patrimônio.
   const netWorth = useMemo(() => {
-    return accounts.reduce((sum, a) => {
+    const bankSum = accounts.reduce((sum, a) => {
       const type = (a.type ?? "").toUpperCase();
       if (type === "CREDIT") return sum;
-      // IMPORTANTE: o `balance` retornado pelo Pluggy para contas BANK JÁ inclui
-      // o `automatically_invested_balance` (que é apenas a parcela do saldo que
-      // está rendendo). Somar os dois duplicaria o valor — usar só `balance`.
       return sum + (a.balance ?? 0);
     }, 0);
-  }, [accounts]);
+    return bankSum + investmentsTotal;
+  }, [accounts, investmentsTotal]);
 
   const value: FinanceContextValue = {
     transactions,
     accounts,
     items,
+    investments,
+    investmentsTotal,
     totalBalance,
     netWorth,
     isLoading,
