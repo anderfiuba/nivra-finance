@@ -174,6 +174,9 @@ interface FinanceContextValue {
   transactions: Transaction[];
   accounts: FinanceAccount[];
   items: PluggyItemSummary[];
+  investments: FinanceInvestment[];
+  /** Soma dos balances dos investimentos (em BRL). */
+  investmentsTotal: number;
   totalBalance: number;
   /** Patrimônio = saldo de contas BANK + saldos investidos. Cartões não entram. */
   netWorth: number;
