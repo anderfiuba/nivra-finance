@@ -499,7 +499,6 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 4. Atualiza status do item
     // 3.1 Sincroniza investimentos do item (universal: qualquer conector PF
     //     que retorne /investments — Pluggy normaliza CDB, Tesouro, Fundos,
     //     Ações, ETFs, COE etc.). Quando o conector não suporta, a função
