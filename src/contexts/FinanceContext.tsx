@@ -294,6 +294,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
   const [items, setItems] = useState<PluggyItemSummary[]>([]);
+  const [investments, setInvestments] = useState<FinanceInvestment[]>([]);
   const [categories, setCategories] = useState<PluggyCategoryNode[]>([]);
   const [bills, setBills] = useState<FinanceBill[]>([]);
   const [categoryBudgets, setCategoryBudgets] = useState<CategoryBudget[]>([]);
