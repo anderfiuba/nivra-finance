@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Card } from "@/components/ui/card";
 import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
 import { Info } from "lucide-react";
