@@ -779,6 +779,11 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         { event: "*", schema: "public", table: "category_budgets", filter: `user_id=eq.${user.id}` },
         () => refresh(),
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "pluggy_investments", filter: `user_id=eq.${user.id}` },
+        () => refresh(),
+      )
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
