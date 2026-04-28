@@ -113,21 +113,9 @@ interface StatCardProps {
 }
 
 function StatCard({ icon, iconBg, label, value, subtitle, barValue, barClass, onClick }: StatCardProps) {
-  const Wrapper: React.ElementType = onClick ? "button" : "div";
-  return (
-    <Card
-      asChild={false}
-      className={cn(
-        "bg-gradient-card border-border p-3 sm:p-4 flex flex-col gap-2 transition-smooth",
-        onClick && "cursor-pointer hover:bg-card/70",
-      )}
-    >
-      <Wrapper
-        type={onClick ? "button" : undefined}
-        onClick={onClick}
-        className="text-left w-full flex flex-col gap-2"
-      >
-        <div className="flex items-center gap-2">
+  const content = (
+    <>
+      <div className="flex items-center gap-2">
           <span className={cn("h-7 w-7 rounded-md flex items-center justify-center shrink-0", iconBg)}>
             {icon}
           </span>
@@ -138,7 +126,20 @@ function StatCard({ icon, iconBg, label, value, subtitle, barValue, barClass, on
         <p className="text-lg sm:text-xl font-bold text-foreground tabular-nums truncate">{value}</p>
         <p className="text-[11px] text-muted-foreground truncate">{subtitle}</p>
         <Progress value={barValue} className={cn("h-1", barClass)} />
-      </Wrapper>
-    </Card>
+    </>
   );
+
+  const baseClass = cn(
+    "bg-gradient-card border-border p-3 sm:p-4 flex flex-col gap-2 transition-smooth rounded-xl border",
+    onClick && "cursor-pointer hover:bg-card/70 text-left",
+  );
+
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className={baseClass}>
+        {content}
+      </button>
+    );
+  }
+  return <Card className={baseClass}>{content}</Card>;
 }
