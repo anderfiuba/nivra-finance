@@ -313,6 +313,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       setCategoryBudgets([]);
       setTotalBudget(null);
       setCardCycleSettings({});
+      setInvestments([]);
       return;
     }
     setIsLoading(true);
