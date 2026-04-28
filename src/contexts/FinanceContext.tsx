@@ -327,6 +327,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         { data: cycleData },
         { data: totalBudgetData },
         { data: profileData },
+        { data: invData },
       ] = await Promise.all([
         supabase
           .from("pluggy_accounts")
@@ -367,6 +368,12 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           .select("cycle_day")
           .eq("id", user.id)
           .maybeSingle(),
+        supabase
+          .from("pluggy_investments")
+          .select(
+            "id,pluggy_investment_id,pluggy_item_id,pluggy_account_id,name,type,subtype,balance,amount_original,amount_profit,currency,issuer,due_date",
+          )
+          .order("balance", { ascending: false }),
       ]);
 
       // ============================================================
