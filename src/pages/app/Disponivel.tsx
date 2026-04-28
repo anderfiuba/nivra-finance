@@ -1,16 +1,17 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, PencilLine, Plus } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { useFinance } from "@/contexts/FinanceContext";
 import { CategoryBudgetCard } from "@/components/disponivel/CategoryBudgetCard";
 import { CategorySheet } from "@/components/disponivel/CategorySheet";
-import { TotalBudgetCard } from "@/components/disponivel/TotalBudgetCard";
 import { CycleDaySettingsButton } from "@/components/CycleDaySettingsButton";
 import { DEFAULT_PARENT_CATEGORIES } from "@/lib/defaultCategories";
+import { CycleStatsWidgets } from "@/components/disponivel/CycleStatsWidgets";
+import { CycleSpendingDonut } from "@/components/disponivel/CycleSpendingDonut";
+import { TotalBudgetDialog } from "@/components/disponivel/TotalBudgetDialog";
 
 /**
  * Pocket View — "Quanto ainda posso gastar este mês?".
@@ -25,8 +26,14 @@ import { DEFAULT_PARENT_CATEGORIES } from "@/lib/defaultCategories";
  *   consulta na página Categorias.
  */
 const Disponivel = () => {
-  const { budgetProgress, cycleCategoryAggregates, lastCycles, currentCycleLabel, categories } =
-    useFinance();
+  const {
+    budgetProgress,
+    cycleCategoryAggregates,
+    lastCycles,
+    currentCycleLabel,
+    categories,
+    totalBudget,
+  } = useFinance();
 
   // Usa o CICLO FINANCEIRO atual configurado pelo usuário.
   const currentCycle = useMemo(() => lastCycles(1)[0], [lastCycles]);
@@ -55,6 +62,7 @@ const Disponivel = () => {
   const [showOthers, setShowOthers] = useState(false);
   const [onlyWithSpending, setOnlyWithSpending] = useState(false);
   const [onlyWithLimit, setOnlyWithLimit] = useState(false);
+  const [totalDialogOpen, setTotalDialogOpen] = useState(false);
 
   const openSheetForBudget = (b: (typeof budgetProgress)[number]) => {
     setSheetSelection({
@@ -159,26 +167,87 @@ const Disponivel = () => {
   const applyLimitFilter = (labels: string[]) =>
     onlyWithLimit ? labels.filter((l) => parentBudgetByLabel.has(l)) : labels;
 
+  // Slices para o donut: usa diretamente a agregação do ciclo (já filtrada
+  // contra transferências e pagamentos de cartão via `isExpenseCategory`).
+  const donutSlices = useMemo(
+    () =>
+      cycleAgg.items.map((it) => ({
+        name: it.parentLabel,
+        value: it.spent,
+        color: "",
+      })),
+    [cycleAgg],
+  );
+
+  const daysRemaining = Math.max(0, totalCycleDays - elapsedDays);
+  const cycleEndLabel = currentCycle
+    ? currentCycle.end.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }).replace(".", "")
+    : "—";
+
   return (
     <div
-      className="px-4 pt-4 pb-8 md:p-8 max-w-2xl mx-auto space-y-5"
+      className="px-4 pt-4 pb-8 md:p-6 lg:p-8 max-w-[1400px] mx-auto space-y-5"
       style={{ paddingBottom: "calc(2rem + env(safe-area-inset-bottom))" }}
     >
-      {/* Header minúsculo */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground truncate">
-            Ciclo {currentCycleLabel}
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <h1 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight truncate">
+              Ciclo Financeiro
+            </h1>
+            <CycleDaySettingsButton className="h-7 w-7 shrink-0" />
+          </div>
+          <p className="text-xs text-muted-foreground mt-0.5 truncate">
+            Centro de gestão de limites e categorias do seu ciclo financeiro · {currentCycleLabel}
           </p>
-          <CycleDaySettingsButton className="h-7 w-7 shrink-0" />
         </div>
-        <p className="text-xs text-muted-foreground tabular-nums shrink-0">
-          dia {elapsedDays} de {totalCycleDays}
-        </p>
+        <div className="flex items-center gap-2 shrink-0">
+          <p className="text-xs text-muted-foreground tabular-nums">
+            dia {elapsedDays} de {totalCycleDays}
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs shrink-0"
+            onClick={() => setTotalDialogOpen(true)}
+          >
+            {totalBudget ? (
+              <>
+                <PencilLine className="h-3.5 w-3.5 mr-1" />
+                Editar limite
+              </>
+            ) : (
+              <>
+                <Plus className="h-3.5 w-3.5 mr-1" />
+                Definir limite
+              </>
+            )}
+          </Button>
+        </div>
       </div>
 
-      {/* Limite total — sempre visível (define ou edita). */}
-      <TotalBudgetCard spent={cycleAgg.total} />
+      {/* 4 widgets do topo */}
+      <CycleStatsWidgets
+        limit={totalBudget?.monthlyLimit ?? null}
+        spent={cycleAgg.total}
+        daysRemaining={daysRemaining}
+        cycleEndLabel={cycleEndLabel}
+        onDefineLimit={() => setTotalDialogOpen(true)}
+      />
+
+      {/* Visão geral (donut) */}
+      <CycleSpendingDonut
+        total={cycleAgg.total}
+        limit={totalBudget?.monthlyLimit ?? null}
+        slices={donutSlices}
+      />
+
+      <TotalBudgetDialog
+        open={totalDialogOpen}
+        onOpenChange={setTotalDialogOpen}
+        spent={cycleAgg.total}
+      />
 
       {/* Sessão de categorias: cabeçalho + toggles ACIMA da lista. */}
       <section className="space-y-3">
