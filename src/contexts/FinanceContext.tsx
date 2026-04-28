@@ -533,6 +533,31 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         })),
       );
 
+      // Mapeia investimentos enriquecendo com metadata do conector (logo/cor).
+      setInvestments(
+        (invData ?? []).map((iv) => {
+          const meta = iv.pluggy_item_id ? itemMap.get(iv.pluggy_item_id) ?? null : null;
+          return {
+            id: iv.id,
+            pluggyInvestmentId: iv.pluggy_investment_id,
+            pluggyItemId: iv.pluggy_item_id,
+            pluggyAccountId: iv.pluggy_account_id ?? null,
+            name: iv.name,
+            type: iv.type ?? null,
+            subtype: iv.subtype ?? null,
+            balance: Number(iv.balance ?? 0),
+            amountOriginal: iv.amount_original !== null && iv.amount_original !== undefined ? Number(iv.amount_original) : null,
+            amountProfit: iv.amount_profit !== null && iv.amount_profit !== undefined ? Number(iv.amount_profit) : null,
+            currency: iv.currency ?? "BRL",
+            issuer: iv.issuer ?? null,
+            dueDate: iv.due_date ?? null,
+            connectorImageUrl: meta?.connectorImageUrl ?? null,
+            connectorPrimaryColor: meta?.connectorPrimaryColor ?? null,
+            connectorName: meta?.connectorName ?? null,
+          } as FinanceInvestment;
+        }),
+      );
+
       setCategories(
         (catData ?? []).map((c) => ({
           id: c.id,
