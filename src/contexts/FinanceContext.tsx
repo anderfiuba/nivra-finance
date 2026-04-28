@@ -121,6 +121,33 @@ export interface PluggyItemSummary {
   accountCount: number;
 }
 
+/**
+ * Posição de investimento (do endpoint /investments da Pluggy).
+ * Universal: serve para qualquer conector PF (CDB, Tesouro, Fundos, Ações...).
+ */
+export interface FinanceInvestment {
+  id: string;
+  pluggyInvestmentId: string;
+  pluggyItemId: string;
+  pluggyAccountId: string | null;
+  name: string;
+  type: string | null;
+  subtype: string | null;
+  /** Saldo atual da posição. */
+  balance: number;
+  /** Valor aplicado original (quando informado). */
+  amountOriginal: number | null;
+  /** Lucro acumulado (quando informado). */
+  amountProfit: number | null;
+  currency: string;
+  issuer: string | null;
+  dueDate: string | null;
+  /** Logo do conector — vem de pluggy_items. */
+  connectorImageUrl: string | null;
+  connectorPrimaryColor: string | null;
+  connectorName: string | null;
+}
+
 export type BudgetStatus = "ok" | "alert" | "over";
 export interface BudgetProgress {
   categoryLabel: string;
