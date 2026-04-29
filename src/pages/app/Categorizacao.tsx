@@ -436,7 +436,7 @@ const Categorizacao = () => {
   // ============== render ==============
   return (
     <div
-      className="p-4 pb-10 md:p-8 space-y-5 md:space-y-6 max-w-3xl mx-auto"
+      className="p-4 pb-10 md:p-8 space-y-5 md:space-y-6 max-w-[1400px] mx-auto"
       style={{ paddingBottom: "calc(2.5rem + env(safe-area-inset-bottom))" }}
     >
       {/* Cabeçalho */}
