@@ -60,7 +60,7 @@ export function PocketSummaryCard() {
           </p>
         </div>
         <Button asChild size="sm" className="shrink-0">
-          <Link to="/app/disponivel">Começar</Link>
+          <Link to="/app/categorizacao">Começar</Link>
         </Button>
       </Card>
     );
@@ -89,7 +89,7 @@ export function PocketSummaryCard() {
           </p>
         </div>
         <Button asChild variant="ghost" size="sm" className="shrink-0 text-xs">
-          <Link to="/app/disponivel">
+          <Link to="/app/categorizacao">
             Ver tudo <ArrowRight className="h-3 w-3 ml-1" />
           </Link>
         </Button>
