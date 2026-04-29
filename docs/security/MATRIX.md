@@ -104,6 +104,7 @@
 |----|---------|------------|--------------------|
 | API.1 | Toda edge function valida JWT (`config.toml` `verify_jwt = true`) | P0 | `auth-config.security.test.ts` ✅ |
 | API.2 | Validação de input: itemId é string trim + non-empty | P1 | `edge-input-validation.security.test.ts` (grep) |
+|       | _Exceção:_ `pluggy-connect-token` aceita `body.itemId` truthy sem `typeof` explícito. Tipo declarado em TS; valor é repassado como string opaca para Pluggy. Risco baixo. Allowlistado no teste. | 🟡 P3 | — |
 | API.3 | Erros não vazam stack/SQL/payload upstream | P0 | `errors.ts` usa `SAFE_MESSAGE`; teste `error-leak.security.test.ts` confirma que respostas só contêm `error` + `message` curtos |
 | API.4 | CORS: preflight de origin não-allowlistada **não** retorna `Allow-Origin` | P0 | `cors.security.test.ts` ✅ + `edge-functions.security.test.ts` (e2e) |
 | API.5 | Sem endpoints arbitrários SQL (`execute_sql`/`rpc('execute_sql')`) | P0 | `sql-injection.security.test.ts` (grep) |
