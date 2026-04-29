@@ -460,86 +460,27 @@ const Categorizacao = () => {
         </p>
       </div>
 
-      {/* Widgets do ciclo + resumo dos orçamentos do mês.
-          Em telas grandes: 4 widgets + card de orçamentos lado-a-lado.
-          Em mobile: empilhados, sem transpor informação. */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-3 lg:gap-4 items-start">
-        <CycleStatsWidgets
-          limit={totalBudget?.monthlyLimit ?? null}
-          spent={monthly.total}
-          daysRemaining={(() => {
-            if (!monthBucket) return 0;
-            const now = new Date();
-            const ms = monthBucket.end.getTime() - now.getTime();
-            return Math.max(0, Math.ceil(ms / (1000 * 60 * 60 * 24)));
-          })()}
-          cycleEndLabel={
-            monthBucket
-              ? monthBucket.end
-                  .toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })
-                  .replace(".", "")
-              : "—"
-          }
-        />
-        <Card className="bg-gradient-card border-border p-4">
-          <div className="flex items-center justify-between gap-2 mb-3">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <PieIcon className="h-4 w-4 text-primary shrink-0" />
-              <h3 className="text-sm font-semibold text-foreground truncate">
-                Orçamentos do mês
-              </h3>
-            </div>
-            <span className="text-[11px] text-muted-foreground tabular-nums shrink-0">
-              {Array.from(budgetByParent.values()).length}{" "}
-              {Array.from(budgetByParent.values()).length === 1 ? "ativo" : "ativos"}
-            </span>
-          </div>
-          {Array.from(budgetByParent.values()).length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              Nenhum limite por categoria definido. Use a lista abaixo para definir.
-            </p>
-          ) : (
-            <ul className="space-y-2.5 max-h-[180px] lg:max-h-[260px] overflow-y-auto pr-1">
-              {Array.from(budgetByParent.values())
-                .sort((a, b) => a.categoryLabel.localeCompare(b.categoryLabel, "pt-BR"))
-                .map((b) => {
-                  const spent = aggByParent.get(b.categoryLabel)?.spent ?? 0;
-                  const ratio = b.monthlyLimit > 0 ? spent / b.monthlyLimit : 0;
-                  const pct = Math.round(Math.min(1, ratio) * 100);
-                  const tone =
-                    ratio >= 1
-                      ? "[&>div]:bg-destructive"
-                      : ratio >= b.alertThreshold
-                        ? "[&>div]:bg-warning"
-                        : "[&>div]:bg-primary";
-                  return (
-                    <li key={b.id} className="space-y-1">
-                      <div className="flex items-center justify-between gap-2 text-xs">
-                        <span className="text-foreground truncate">{b.categoryLabel}</span>
-                        <span
-                          className={cn(
-                            "tabular-nums font-medium shrink-0",
-                            ratio >= 1 ? "text-destructive" : "text-success",
-                          )}
-                        >
-                          {pct}%
-                        </span>
-                      </div>
-                      <Progress value={pct} className={cn("h-1", tone)} />
-                      <div className="flex items-center justify-between text-[11px] text-muted-foreground tabular-nums">
-                        <span>{formatBRL(spent)}</span>
-                        <span>de {formatBRL(b.monthlyLimit)}</span>
-                      </div>
-                    </li>
-                  );
-                })}
-            </ul>
-          )}
-        </Card>
-      </div>
-
-      {/* Limite total do ciclo financeiro */}
+      {/* 1º Gadget: Limite total do ciclo financeiro */}
       <TotalBudgetCard spent={monthly.total} />
+
+      {/* 2º Gadget: 4 widgets (Limite/Gasto/Disponível/Dias restantes) */}
+      <CycleStatsWidgets
+        limit={totalBudget?.monthlyLimit ?? null}
+        spent={monthly.total}
+        daysRemaining={(() => {
+          if (!monthBucket) return 0;
+          const now = new Date();
+          const ms = monthBucket.end.getTime() - now.getTime();
+          return Math.max(0, Math.ceil(ms / (1000 * 60 * 60 * 24)));
+        })()}
+        cycleEndLabel={
+          monthBucket
+            ? monthBucket.end
+                .toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })
+                .replace(".", "")
+            : "—"
+        }
+      />
 
       {/* Visão geral: gráfico circular + total gasto */}
       <Card className="bg-gradient-card border-border p-4 md:p-6">
