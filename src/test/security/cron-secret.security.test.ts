@@ -7,7 +7,14 @@ import { readFileSync } from "node:fs";
  * Garantir que NÃO exista bypass por body (ex: `source: "cron"` antigo).
  */
 describe("[SEC] pluggy-sync-data — autenticação dual sem bypass", () => {
-  const c = readFileSync("supabase/functions/pluggy-sync-data/index.ts", "utf8");
+  // Remove comentários para não pegar self-references (nosso código documenta
+  // o bypass legacy ELIMINADO em comentário).
+  const raw = readFileSync("supabase/functions/pluggy-sync-data/index.ts", "utf8");
+  const c = raw
+    .split("\n")
+    .map((l) => l.replace(/\/\/.*$/, ""))     // line comments
+    .join("\n")
+    .replace(/\/\*[\s\S]*?\*\//g, "");        // block comments
 
   it("aceita CRON_SHARED_SECRET via header", () => {
     expect(c).toMatch(/CRON_SHARED_SECRET/);

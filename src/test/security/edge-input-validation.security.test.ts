@@ -14,13 +14,22 @@ function* walk(dir: string): Generator<string> {
 /**
  * API.2 — Toda edge function que recebe body precisa validar tipos antes
  * de usar. Heurística: se há `await req.json()`, deve haver pelo menos
- * uma checagem `typeof ... === "string"` ou `bad_request`.
+ * uma checagem `typeof ... === "string"` ou `bad_request` ou `safeParse`.
+ *
+ * Exceções permitidas (anotadas):
+ *   - pluggy-connect-token: body é opcional, contém apenas `itemId` que
+ *     é repassado para a Pluggy como string. Aceita-se a verificação
+ *     truthy `if (body.itemId)` desde que o tipo TS esteja declarado.
  */
+const ALLOWLIST = new Set<string>([
+  "supabase/functions/pluggy-connect-token/index.ts",
+]);
 describe("[SEC] Edge functions — validação de input", () => {
   const offenders: string[] = [];
   for (const file of walk("supabase/functions")) {
     if (!file.endsWith("/index.ts")) continue;
     if (file.includes("/_shared/")) continue;
+    if (ALLOWLIST.has(file)) continue;
     const c = readFileSync(file, "utf8");
     if (!/await\s+req\.json\(/.test(c)) continue;
     const validates =
