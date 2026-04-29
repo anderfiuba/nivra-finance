@@ -37,6 +37,7 @@ import { MonthSelector } from "@/components/extrato/MonthSelector";
 import { CycleDaySettingsButton } from "@/components/CycleDaySettingsButton";
 import { DEFAULT_PARENT_CATEGORIES } from "@/lib/defaultCategories";
 import { TotalBudgetCard } from "@/components/disponivel/TotalBudgetCard";
+import { CycleStatsWidgets } from "@/components/disponivel/CycleStatsWidgets";
 import { CategoryIcon } from "@/lib/categoryIcons";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { toast } from "sonner";
