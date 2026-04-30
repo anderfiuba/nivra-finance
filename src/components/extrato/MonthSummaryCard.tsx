@@ -18,28 +18,33 @@ export function MonthSummaryCard({ count, entradas, saidas }: MonthSummaryCardPr
   const resultadoPositivo = resultado >= 0;
 
   return (
-    <Card className="bg-gradient-card border-border p-3 md:p-4">
-      {/* Mobile: linha compacta com ícones + valores */}
-      <div className="flex items-center justify-between gap-2 md:hidden">
-        <div className="flex items-center gap-1.5 text-foreground">
-          <Receipt className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-sm font-medium">{count}</span>
-        </div>
-        <div className="flex items-center gap-1 text-success">
-          <ArrowDownRight className="h-3.5 w-3.5" />
-          <span className="text-xs font-semibold">{formatBRL(entradas)}</span>
-        </div>
-        <div className="flex items-center gap-1 text-destructive">
-          <ArrowUpRight className="h-3.5 w-3.5" />
-          <span className="text-xs font-semibold">{formatBRL(saidas)}</span>
-        </div>
-        <div className={cn("flex items-center gap-1", resultadoPositivo ? "text-success" : "text-destructive")}>
-          <ArrowLeftRight className="h-3.5 w-3.5" />
-          <span className="text-xs font-bold">
-            {resultadoPositivo ? "" : "−"}
-            {formatBRL(Math.abs(resultado))}
-          </span>
-        </div>
+    <Card className="bg-gradient-card border-border p-3 md:p-4 overflow-hidden">
+      {/* Mobile: grid 2x2 para evitar overflow com valores grandes */}
+      <div className="grid grid-cols-2 gap-x-3 gap-y-2 md:hidden">
+        <MobileItem
+          icon={<Receipt className="h-3.5 w-3.5" />}
+          label="Transações"
+          value={String(count)}
+          tone="muted"
+        />
+        <MobileItem
+          icon={<ArrowDownRight className="h-3.5 w-3.5" />}
+          label="Entradas"
+          value={formatBRL(entradas)}
+          tone="success"
+        />
+        <MobileItem
+          icon={<ArrowUpRight className="h-3.5 w-3.5" />}
+          label="Saídas"
+          value={formatBRL(saidas)}
+          tone="destructive"
+        />
+        <MobileItem
+          icon={<ArrowLeftRight className="h-3.5 w-3.5" />}
+          label="Resultado"
+          value={`${resultadoPositivo ? "" : "−"}${formatBRL(Math.abs(resultado))}`}
+          tone={resultadoPositivo ? "success" : "destructive"}
+        />
       </div>
 
       {/* Desktop: grid de 4 mini-cards */}
@@ -71,6 +76,30 @@ export function MonthSummaryCard({ count, entradas, saidas }: MonthSummaryCardPr
         />
       </div>
     </Card>
+  );
+}
+
+function MobileItem({
+  icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  tone: "muted" | "success" | "destructive";
+}) {
+  const toneClass =
+    tone === "success" ? "text-success" : tone === "destructive" ? "text-destructive" : "text-foreground";
+  return (
+    <div className="flex flex-col gap-0.5 min-w-0">
+      <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+        <span className={toneClass}>{icon}</span>
+        <span className="truncate">{label}</span>
+      </div>
+      <div className={cn("text-sm font-semibold tabular-nums truncate", toneClass)}>{value}</div>
+    </div>
   );
 }
 
