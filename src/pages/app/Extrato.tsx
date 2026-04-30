@@ -7,8 +7,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useFinance } from "@/contexts/FinanceContext";
 import { toast } from "sonner";
-import { lastNMonths, monthKeyOf, currentMonthBucket } from "@/lib/months";
-import { MonthSelector } from "@/components/extrato/MonthSelector";
+import { lastNMonths, monthKeyOf, currentMonthBucket, monthBucketFromKey } from "@/lib/months";
+import { PeriodFilter, type PeriodValue } from "@/components/extrato/PeriodFilter";
 import { MonthSummaryCard } from "@/components/extrato/MonthSummaryCard";
 import { TransactionRow } from "@/components/extrato/TransactionRow";
 
@@ -17,7 +17,10 @@ const PAGE_INCREMENT = 100;
 const Extrato = () => {
   const { transactions, categories, updateCategory, accounts } = useFinance();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [monthKey, setMonthKey] = useState<string>(() => currentMonthBucket().key);
+  const [period, setPeriod] = useState<PeriodValue>(() => ({
+    mode: "month",
+    monthKey: currentMonthBucket().key,
+  }));
   const [search, setSearch] = useState("");
   const [account, setAccount] = useState("all");
   const [category, setCategory] = useState<string>(() => searchParams.get("category") ?? "all");
@@ -69,11 +72,28 @@ const Extrato = () => {
     return m;
   }, [accounts]);
 
-  // Transações do mês selecionado (sem outros filtros) — base para o resumo.
-  const monthTransactions = useMemo(
-    () => transactions.filter((t) => monthKeyOf(t.date) === monthKey),
-    [transactions, monthKey],
-  );
+  // Transações dentro do período selecionado (sem outros filtros) — base para o resumo.
+  const monthTransactions = useMemo(() => {
+    if (period.mode === "all") return transactions;
+    if (period.mode === "month") {
+      const k = period.monthKey ?? "";
+      return transactions.filter((t) => monthKeyOf(t.date) === k);
+    }
+    if (period.mode === "last3") {
+      const keys = new Set(lastNMonths(3).map((m) => m.key));
+      return transactions.filter((t) => keys.has(monthKeyOf(t.date)));
+    }
+    // custom
+    const from = period.range?.from;
+    const to = period.range?.to;
+    if (!from || !to) return [];
+    const fromTs = new Date(from.getFullYear(), from.getMonth(), from.getDate(), 0, 0, 0, 0).getTime();
+    const toTs = new Date(to.getFullYear(), to.getMonth(), to.getDate(), 23, 59, 59, 999).getTime();
+    return transactions.filter((t) => {
+      const d = new Date(t.date).getTime();
+      return d >= fromTs && d <= toTs;
+    });
+  }, [transactions, period]);
 
   const monthTotals = useMemo(() => {
     let entradas = 0;
@@ -115,8 +135,8 @@ const Extrato = () => {
     toast.success("Categoria atualizada");
   };
 
-  const handleMonthChange = (key: string) => {
-    setMonthKey(key);
+  const handlePeriodChange = (v: PeriodValue) => {
+    setPeriod(v);
     setVisibleCount(PAGE_INCREMENT);
   };
 
@@ -135,10 +155,10 @@ const Extrato = () => {
         </Button>
       </div>
 
-      {/* Seletor de mês + resumo */}
+      {/* Seletor de período + resumo */}
       <div className="space-y-3 md:space-y-4">
         <div className="flex items-center justify-between gap-2">
-          <MonthSelector months={months} value={monthKey} onChange={handleMonthChange} />
+          <PeriodFilter months={months} value={period} onChange={handlePeriodChange} />
         </div>
         <MonthSummaryCard
           count={filteredTotals.count}
