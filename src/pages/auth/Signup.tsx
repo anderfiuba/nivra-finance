@@ -6,7 +6,6 @@ import { Logo } from "@/components/Logo";
 import { ArrowRight, Check, Eye, EyeOff, ShieldCheck, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { formatCpf, isValidCpf, normalizeCpf } from "@/lib/cpf";
@@ -71,35 +70,16 @@ const Signup = () => {
       return;
     }
     setLoading(true);
-    const { error } = await signUp(email, password, fullName);
+    // CPF é repassado via metadata do signUp; o trigger handle_new_user persiste em profiles.
+    const { error } = await signUp(email, password, fullName, cpfDigits);
+    setLoading(false);
     if (error) {
-      setLoading(false);
       const msg = error.message.includes("already registered")
         ? "Este email já possui uma conta. Faça login."
         : error.message;
       toast.error("Não foi possível criar a conta", { description: msg });
       return;
     }
-    // Persiste o CPF no perfil. O trigger handle_new_user cria a linha em profiles;
-    // aqui apenas atualizamos o campo cpf.
-    const { data: sessionData } = await supabase.auth.getSession();
-    const newUserId = sessionData.session?.user?.id;
-    if (newUserId) {
-      const { error: cpfError } = await supabase
-        .from("profiles")
-        .update({ cpf: cpfDigits })
-        .eq("id", newUserId);
-      if (cpfError) {
-        // Se o CPF já está cadastrado em outra conta, o índice único barra.
-        const isDuplicate = /duplicate|unique/i.test(cpfError.message);
-        toast.error("Não foi possível salvar o CPF", {
-          description: isDuplicate
-            ? "Este CPF já está em uso por outra conta."
-            : "Tente novamente nas configurações do perfil.",
-        });
-      }
-    }
-    setLoading(false);
     toast.success("Conta criada com sucesso!");
     navigate("/app", { replace: true });
   };
