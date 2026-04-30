@@ -92,15 +92,15 @@ export function PeriodFilter({ months, value, onChange }: PeriodFilterProps) {
         <Button
           variant="outline"
           size="sm"
-          className="h-9 gap-2 px-3 bg-input border-border max-w-full"
+          className="h-9 gap-2 px-3 bg-input border-border w-full sm:w-auto sm:max-w-sm justify-start"
           aria-label="Filtrar período"
         >
           <CalendarIcon className="h-4 w-4 text-muted-foreground shrink-0" />
-          <span className="flex flex-col items-start leading-tight min-w-0">
+          <span className="flex flex-col items-start leading-tight min-w-0 flex-1">
             <span className="text-[10px] uppercase tracking-wide text-muted-foreground hidden sm:block">
               {MODE_LABEL[value.mode]}
             </span>
-            <span className="text-sm font-medium truncate max-w-[200px] sm:max-w-[260px]">
+            <span className="text-sm font-medium truncate w-full text-left">
               {summary}
             </span>
           </span>
