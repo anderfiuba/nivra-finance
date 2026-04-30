@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useFinance } from "@/contexts/FinanceContext";
 import { toast } from "sonner";
-import { lastNMonths, monthKeyOf, currentMonthBucket, monthBucketFromKey } from "@/lib/months";
+import { lastNMonths, monthKeyOf, currentMonthBucket } from "@/lib/months";
 import { PeriodFilter, type PeriodValue } from "@/components/extrato/PeriodFilter";
 import { MonthSummaryCard } from "@/components/extrato/MonthSummaryCard";
 import { TransactionRow } from "@/components/extrato/TransactionRow";
