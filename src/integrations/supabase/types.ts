@@ -539,6 +539,7 @@ export type Database = {
       profiles: {
         Row: {
           consent_accepted_at: string | null
+          cpf: string | null
           created_at: string
           cycle_day: number
           full_name: string | null
@@ -547,6 +548,7 @@ export type Database = {
         }
         Insert: {
           consent_accepted_at?: string | null
+          cpf?: string | null
           created_at?: string
           cycle_day?: number
           full_name?: string | null
@@ -555,6 +557,7 @@ export type Database = {
         }
         Update: {
           consent_accepted_at?: string | null
+          cpf?: string | null
           created_at?: string
           cycle_day?: number
           full_name?: string | null
