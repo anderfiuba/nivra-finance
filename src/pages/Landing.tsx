@@ -55,8 +55,8 @@ const Landing = () => {
               </Button>
             </div>
             <div className="mt-12 flex flex-wrap items-center justify-center gap-8 text-xs text-muted-foreground">
-              <div className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-success" /> Regulado pelo Banco Central</div>
-              <div className="flex items-center gap-2"><Lock className="h-4 w-4 text-success" /> Criptografia de ponta a ponta</div>
+              <div className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-success" /> Open Finance regulado pelo BCB</div>
+              <div className="flex items-center gap-2"><Lock className="h-4 w-4 text-success" /> Conexão HTTPS/TLS</div>
               <div className="flex items-center gap-2"><Eye className="h-4 w-4 text-success" /> Apenas leitura, jamais movimenta</div>
             </div>
           </div>
@@ -354,6 +354,14 @@ const Landing = () => {
       <footer className="border-t border-border py-10">
         <div className="container flex flex-col md:flex-row items-center justify-between gap-4">
           <Logo />
+          <nav className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
+            <Link to="/privacidade" className="text-muted-foreground hover:text-foreground transition-smooth">
+              Política de Privacidade
+            </Link>
+            <Link to="/termos" className="text-muted-foreground hover:text-foreground transition-smooth">
+              Termos e Condições
+            </Link>
+          </nav>
           <p className="text-xs text-muted-foreground">© 2025 Nivra. Inteligência financeira pessoal.</p>
         </div>
       </footer>
