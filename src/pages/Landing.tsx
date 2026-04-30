@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/Logo";
-import { ArrowRight, Brain, Check, Eye, Lock, ShieldCheck, Sparkles, Wallet, Zap, BarChart3, KeyRound, FileLock2, Server, Network, Database, Activity, UserCheck, FileCheck2 } from "lucide-react";
+import { ArrowRight, Brain, Check, Eye, Lock, ShieldCheck, Sparkles, Wallet, Zap, BarChart3, KeyRound, FileLock2, FileCheck2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 
 const Landing = () => {
@@ -55,8 +55,8 @@ const Landing = () => {
               </Button>
             </div>
             <div className="mt-12 flex flex-wrap items-center justify-center gap-8 text-xs text-muted-foreground">
-              <div className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-success" /> Regulado pelo Banco Central</div>
-              <div className="flex items-center gap-2"><Lock className="h-4 w-4 text-success" /> Criptografia de ponta a ponta</div>
+              <div className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-success" /> Open Finance regulado pelo BCB</div>
+              <div className="flex items-center gap-2"><Lock className="h-4 w-4 text-success" /> Conexão HTTPS/TLS</div>
               <div className="flex items-center gap-2"><Eye className="h-4 w-4 text-success" /> Apenas leitura, jamais movimenta</div>
             </div>
           </div>
@@ -194,52 +194,27 @@ const Landing = () => {
             </p>
           </div>
 
-          <div className="mt-16 grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="mt-16 grid md:grid-cols-2 gap-6 max-w-5xl mx-auto">
             {[
               {
                 icon: Lock,
-                title: "Transporte e sessão protegidos",
-                desc: "100% HTTPS com TLS forçado. Cookies de sessão com Secure, HttpOnly e SameSite. Identificadores de sessão únicos e imprevisíveis, alinhados ao OWASP.",
+                title: "Conexão criptografada (HTTPS/TLS)",
+                desc: "Todo o tráfego entre você e a Nivra usa HTTPS com TLS, protegendo seus dados durante a navegação e o acesso aos extratos.",
               },
               {
                 icon: KeyRound,
-                title: "Autenticação forte",
-                desc: "Política de senha rigorosa, proteção contra brute force, rate limiting, logs de autenticação e MFA disponível para ações sensíveis.",
+                title: "Login com senha forte",
+                desc: "Cadastro exige senha com letra maiúscula, minúscula, número, caractere especial e mínimo de 8 caracteres. Autenticação gerenciada por provedor especializado.",
               },
               {
-                icon: UserCheck,
-                title: "Autorização granular",
-                desc: "Controle por usuário, conta, conexão bancária e extrato. Verificação de acesso em nível de objeto, conforme OWASP API Top 10 2023.",
-              },
-              {
-                icon: ShieldCheck,
-                title: "Defesa contra XSS e injeção",
-                desc: "Sanitização de entrada, validação no servidor, escape de saída e Content Security Policy (CSP) forte aplicada em toda a aplicação.",
-              },
-              {
-                icon: Network,
-                title: "APIs blindadas",
-                desc: "Autenticação robusta, escopos mínimos, rate limiting, versionamento, inventário de endpoints e validação estrita de payloads.",
+                icon: Eye,
+                title: "Open Finance: apenas leitura",
+                desc: "A integração via Pluggy / Open Finance Brasil é exclusivamente de leitura. A Nivra nunca movimenta dinheiro, transfere ou paga em seu nome.",
               },
               {
                 icon: FileLock2,
-                title: "Criptografia de ponta a ponta",
-                desc: "Dados sensíveis criptografados em trânsito e em repouso. Segregação de segredos, rotação de chaves e zero exposição de tokens no front-end.",
-              },
-              {
-                icon: Server,
-                title: "Integridade de software",
-                desc: "Inventário de bibliotecas, atualização contínua de componentes, revisão de dependências e proteção de pipelines de CI/CD, build e deploy.",
-              },
-              {
-                icon: Database,
-                title: "Banco com privilégio mínimo",
-                desc: "Contas separadas por ambiente, queries parametrizadas, comunicação protegida e acesso ao dado restrito ao estritamente necessário.",
-              },
-              {
-                icon: Activity,
-                title: "Logs, auditoria e monitoramento",
-                desc: "Trilha completa de logins, falhas, acessos a dados sensíveis e eventos administrativos, com alertas e retenção auditável (ASVS).",
+                title: "Isolamento de dados por usuário",
+                desc: "Cada usuário só enxerga seus próprios dados, com regras de acesso aplicadas no banco (Row Level Security). Conexões bancárias podem ser desconectadas a qualquer momento.",
               },
             ].map((item, i) => (
               <Card key={i} className="bg-gradient-card border-border p-6 hover:border-primary/40 transition-smooth group">
@@ -284,7 +259,10 @@ const Landing = () => {
           </div>
 
           <p className="mt-10 text-center text-xs text-muted-foreground max-w-2xl mx-auto">
-            Referências: OWASP Top 10 2021, OWASP API Security Top 10 2023, OWASP ASVS e LGPD (Lei nº 13.709/2018).
+            Saiba mais em nossa{" "}
+            <Link to="/privacidade" className="underline hover:text-foreground">Política de Privacidade</Link>
+            {" "}e nos{" "}
+            <Link to="/termos" className="underline hover:text-foreground">Termos de Uso</Link>.
           </p>
         </div>
       </section>
@@ -376,6 +354,14 @@ const Landing = () => {
       <footer className="border-t border-border py-10">
         <div className="container flex flex-col md:flex-row items-center justify-between gap-4">
           <Logo />
+          <nav className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
+            <Link to="/privacidade" className="text-muted-foreground hover:text-foreground transition-smooth">
+              Política de Privacidade
+            </Link>
+            <Link to="/termos" className="text-muted-foreground hover:text-foreground transition-smooth">
+              Termos e Condições
+            </Link>
+          </nav>
           <p className="text-xs text-muted-foreground">© 2025 Nivra. Inteligência financeira pessoal.</p>
         </div>
       </footer>

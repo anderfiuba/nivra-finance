@@ -12,6 +12,7 @@ interface AuthContextValue {
     email: string,
     password: string,
     fullName: string,
+    cpf?: string,
   ) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<{ error: Error | null }>;
@@ -55,13 +56,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error };
   };
 
-  const signUp = async (email: string, password: string, fullName: string) => {
+  const signUp = async (email: string, password: string, fullName: string, cpf?: string) => {
     const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         emailRedirectTo: `${window.location.origin}/app`,
-        data: { full_name: fullName },
+        data: { full_name: fullName, ...(cpf ? { cpf } : {}) },
       },
     });
     return { error };
