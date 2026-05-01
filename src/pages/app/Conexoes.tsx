@@ -26,6 +26,7 @@ import {
   markConnectionStarted,
   consumeConnectionFlag,
 } from "@/lib/pluggyReturnFlow";
+import { hasPluggySyncData, PLUGGY_SYNC_RETRY_DELAYS_MS } from "@/lib/pluggySyncRetry";
 
 // Linha de pluggy_items no Cloud + status atualizado.
 interface PluggyItemRow {
@@ -57,6 +58,27 @@ const Conexoes = () => {
   const [listError, setListError] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const returnHandledRef = useRef(false);
+
+  const syncItemWithRetry = useCallback(async (itemId: string) => {
+    let lastError: string | null = null;
+    for (let attempt = 0; attempt < PLUGGY_SYNC_RETRY_DELAYS_MS.length; attempt += 1) {
+      const delay = PLUGGY_SYNC_RETRY_DELAYS_MS[attempt];
+      if (delay > 0) await new Promise((resolve) => window.setTimeout(resolve, delay));
+
+      const { data, error } = await supabase.functions.invoke("pluggy-sync-data", {
+        body: { itemId },
+      });
+      if (error) {
+        lastError = error.message;
+        continue;
+      }
+      if (hasPluggySyncData(data as { accounts?: number; transactions?: number; bills?: number; investments?: number })) {
+        return true;
+      }
+    }
+    if (lastError) throw new Error(lastError);
+    return false;
+  }, []);
 
   const loadItems = useCallback(async () => {
     if (!user) return;
@@ -93,14 +115,9 @@ const Conexoes = () => {
         });
         if (error) throw error;
         toast.success("Conta conectada! Sincronizando dados…");
-        // Dispara sync de accounts + transactions imediatamente
-        const { error: syncErr } = await supabase.functions.invoke("pluggy-sync-data", {
-          body: { itemId },
-        });
-        if (syncErr) {
-          toast.error("Conta conectada, mas falha ao sincronizar dados.", {
-            description: syncErr.message,
-          });
+        const synced = await syncItemWithRetry(itemId);
+        if (!synced) {
+          toast.info("Conta conectada. Alguns dados ainda estão sendo liberados pelo banco.");
         } else {
           toast.success("Dados sincronizados com sucesso!");
         }
@@ -110,7 +127,7 @@ const Conexoes = () => {
         toast.error("Erro ao registrar conta", { description: message });
       }
     },
-    [loadItems],
+    [loadItems, syncItemWithRetry],
   );
 
   // Reconcilia itens criados na Pluggy mas ausentes no nosso banco.
@@ -133,18 +150,14 @@ const Conexoes = () => {
             ? "Conta conectada! Sincronizando dados…"
             : `${reconciled.length} contas conectadas! Sincronizando dados…`,
         );
-        await Promise.all(
-          reconciled.map((itemId) =>
-            supabase.functions.invoke("pluggy-sync-data", { body: { itemId } }),
-          ),
-        );
+        await Promise.all(reconciled.map((itemId) => syncItemWithRetry(itemId)));
         await loadItems();
       }
     } catch (err) {
       // Reconcile é defensivo — falha silenciosa no console, sem toast ruidoso.
       console.warn("[conexoes] reconcile falhou", err);
     }
-  }, [loadItems]);
+  }, [loadItems, syncItemWithRetry]);
 
   // Trata retorno do OAuth/Open Finance via query string (mobile).
   // Pluggy redireciona para /app/conexoes?item_id=... após autorização.

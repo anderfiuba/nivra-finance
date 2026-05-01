@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import { inferBillPaid } from "@/lib/billPayment";
 import { buildPatrimonyHistory } from "@/lib/patrimonyHistory";
 import { excludeNonCashFlowIds } from "@/lib/transferDetection";
+import { shouldAutoResyncPluggyItem } from "@/lib/pluggySyncRetry";
 
 const STORAGE_CYCLE = "nivra:cycleDay:v1";
 // Sempre usa a data atual — sem mock.
@@ -113,6 +114,7 @@ export interface CardCycleSetting {
 export interface PluggyItemSummary {
   id: string;
   pluggyItemId: string;
+  createdAt: string | null;
   connectorName: string;
   connectorImageUrl: string | null;
   connectorPrimaryColor: string | null;
@@ -373,7 +375,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         supabase
           .from("pluggy_items")
           .select(
-            "id,pluggy_item_id,connector_name,connector_image_url,connector_primary_color,status,execution_status,status_detail,last_synced_at,updated_at",
+            "id,pluggy_item_id,connector_name,connector_image_url,connector_primary_color,status,execution_status,status_detail,last_synced_at,created_at,updated_at",
           )
           .order("connector_name", { ascending: true }),
         supabase
@@ -544,6 +546,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         (itemData ?? []).map((it) => ({
           id: it.id,
           pluggyItemId: it.pluggy_item_id,
+          createdAt: it.created_at ?? null,
           connectorName: it.connector_name,
           connectorImageUrl: it.connector_image_url,
           connectorPrimaryColor: it.connector_primary_color,
@@ -776,11 +779,16 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     refresh();
   }, [refresh]);
 
-  // Realtime: novas transactions/contas refletem na UI
+  // Realtime: novos dados financeiros refletem na UI enquanto a sync grava em lote.
   useEffect(() => {
     if (!user) return;
     const channel = supabase
       .channel(`finance-${user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "pluggy_items", filter: `user_id=eq.${user.id}` },
+        () => refresh(),
+      )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "pluggy_transactions", filter: `user_id=eq.${user.id}` },
@@ -811,6 +819,32 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       supabase.removeChannel(channel);
     };
   }, [user, refresh]);
+
+  // Fallback universal pós-Open Finance: alguns bancos concluem o OAuth antes
+  // de liberar contas/extrato/faturas para leitura. Se o item recente existe,
+  // mas ainda não tem contas locais, tentamos sincronizar novamente em segundo
+  // plano. Isso é por item Pluggy, não por nome de banco.
+  useEffect(() => {
+    if (!user) return;
+    const pending = items.filter((item) => shouldAutoResyncPluggyItem(item));
+    if (pending.length === 0) return;
+
+    let cancelled = false;
+    const timers = pending.map((item) =>
+      window.setTimeout(async () => {
+        if (cancelled) return;
+        const { error } = await supabase.functions.invoke("pluggy-sync-data", {
+          body: { itemId: item.pluggyItemId },
+        });
+        if (!cancelled && !error) refresh();
+      }, 20_000),
+    );
+
+    return () => {
+      cancelled = true;
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [items, user, refresh]);
 
   // Persiste apenas a configuração de ciclo (preferência do usuário).
   const persistCycle = useCallback((day: number) => {
