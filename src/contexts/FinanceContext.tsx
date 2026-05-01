@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import { inferBillPaid } from "@/lib/billPayment";
 import { buildPatrimonyHistory } from "@/lib/patrimonyHistory";
 import { excludeNonCashFlowIds } from "@/lib/transferDetection";
+import { shouldAutoResyncPluggyItem } from "@/lib/pluggySyncRetry";
 
 const STORAGE_CYCLE = "nivra:cycleDay:v1";
 // Sempre usa a data atual — sem mock.
@@ -113,6 +114,7 @@ export interface CardCycleSetting {
 export interface PluggyItemSummary {
   id: string;
   pluggyItemId: string;
+  createdAt: string | null;
   connectorName: string;
   connectorImageUrl: string | null;
   connectorPrimaryColor: string | null;
@@ -373,7 +375,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         supabase
           .from("pluggy_items")
           .select(
-            "id,pluggy_item_id,connector_name,connector_image_url,connector_primary_color,status,execution_status,status_detail,last_synced_at,updated_at",
+            "id,pluggy_item_id,connector_name,connector_image_url,connector_primary_color,status,execution_status,status_detail,last_synced_at,created_at,updated_at",
           )
           .order("connector_name", { ascending: true }),
         supabase
@@ -544,6 +546,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         (itemData ?? []).map((it) => ({
           id: it.id,
           pluggyItemId: it.pluggy_item_id,
+          createdAt: it.created_at ?? null,
           connectorName: it.connector_name,
           connectorImageUrl: it.connector_image_url,
           connectorPrimaryColor: it.connector_primary_color,
