@@ -19,6 +19,15 @@ interface Props {
    * total real disponível na instituição.
    */
   balanceLikelyIncomplete?: boolean;
+  /**
+   * Quando true: o item Pluggy desta conta retornou PARTIAL_SUCCESS — ou seja,
+   * o banco entregou a conta mas o usuário não autorizou (ou a instituição
+   * não entregou) algum produto, normalmente TRANSACTIONS. Renderiza aviso
+   * claro no nome da conta.
+   */
+  partialSync?: boolean;
+  /** Lista de produtos não entregues, derivada do statusDetail. */
+  missingProducts?: string[];
 }
 
 /**
@@ -26,7 +35,13 @@ interface Props {
  * - Mobile: stack vertical (logo+texto em cima, valor embaixo).
  * - Desktop: 3 colunas (logo, info, valor à direita).
  */
-export function AccountRow({ account, variant, balanceLikelyIncomplete }: Props) {
+export function AccountRow({
+  account,
+  variant,
+  balanceLikelyIncomplete,
+  partialSync,
+  missingProducts,
+}: Props) {
   const isCredit = variant === "credit";
   const Icon = isCredit ? CreditCard : Wallet;
 
@@ -76,6 +91,31 @@ export function AccountRow({ account, variant, balanceLikelyIncomplete }: Props)
                     (ex: Mercado Pago) costumam não expor saldo investido. O valor real
                     disponível pode estar em uma carteira de rendimento não acessível
                     pela conexão.
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+            {partialSync && (
+              <TooltipProvider delayDuration={150}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span
+                      className="inline-flex items-center text-warning shrink-0"
+                      aria-label="Conexão com sincronização parcial"
+                    >
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-[280px] text-xs leading-relaxed">
+                    O banco autorizou apenas parte dos dados nesta conexão.
+                    {missingProducts && missingProducts.length > 0 && (
+                      <>
+                        {" "}
+                        Não foram entregues: <strong>{missingProducts.join(", ")}</strong>.
+                      </>
+                    )}{" "}
+                    Reconecte em <strong>Conexões</strong> marcando todos os produtos no
+                    consentimento para ver saldo, extrato e faturas completos.
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>

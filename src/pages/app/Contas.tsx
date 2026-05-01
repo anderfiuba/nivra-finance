@@ -36,6 +36,52 @@ const Contas = () => {
     return flags;
   }, [bankAccounts, transactions]);
 
+  /**
+   * Mapeia pluggy_item_id → { isPartial, missing[] } para sinalizar nas
+   * contas que vieram de uma conexão com sincronização parcial — caso típico
+   * em que o usuário não autorizou o produto TRANSACTIONS no consentimento
+   * do banco (Inter, Bradesco etc.).
+   */
+  const itemPartialMap = useMemo(() => {
+    const labels: Record<string, string> = {
+      accounts: "Contas",
+      transactions: "Transações",
+      creditCards: "Cartões",
+      investments: "Investimentos",
+      loans: "Empréstimos",
+      identity: "Dados cadastrais",
+      paymentData: "Dados de pagamento",
+      incomeReports: "Comprovantes de renda",
+    };
+    const map = new Map<string, { isPartial: boolean; missing: string[] }>();
+    for (const it of items) {
+      const isPartial = (it.executionStatus ?? "") === "PARTIAL_SUCCESS";
+      const missing: string[] = [];
+      if (isPartial && it.statusDetail && typeof it.statusDetail === "object") {
+        for (const [key, raw] of Object.entries(it.statusDetail)) {
+          if (!raw || typeof raw !== "object") continue;
+          const v = raw as { isUpdated?: boolean; warnings?: unknown[]; errors?: unknown[] };
+          const failed =
+            v.isUpdated === false ||
+            (Array.isArray(v.errors) && v.errors.length > 0) ||
+            (Array.isArray(v.warnings) && v.warnings.length > 0);
+          if (failed) missing.push(labels[key] ?? key);
+        }
+      }
+      map.set(it.pluggyItemId, { isPartial, missing });
+    }
+    return map;
+  }, [items]);
+
+  const partialPropsFor = (pluggyItemId: string | null) => {
+    if (!pluggyItemId) return { partialSync: false, missingProducts: undefined };
+    const meta = itemPartialMap.get(pluggyItemId);
+    return {
+      partialSync: meta?.isPartial ?? false,
+      missingProducts: meta?.missing,
+    };
+  };
+
   // Total de cartões = soma das dívidas (saldo absoluto)
   const creditTotal = creditCards.reduce((sum, a) => sum + Math.abs(a.balance ?? 0), 0);
   // Total contas = soma direta dos saldos
@@ -96,7 +142,12 @@ const Contas = () => {
               totalValue={creditTotal}
             >
               {creditCards.map((acc) => (
-                <AccountRow key={acc.id} account={acc} variant="credit" />
+                <AccountRow
+                  key={acc.id}
+                  account={acc}
+                  variant="credit"
+                  {...partialPropsFor(acc.pluggyItemId)}
+                />
               ))}
             </AccountGroupCard>
           )}
@@ -114,6 +165,7 @@ const Contas = () => {
                   account={acc}
                   variant="bank"
                   balanceLikelyIncomplete={incompleteFlags[acc.id]}
+                  {...partialPropsFor(acc.pluggyItemId)}
                 />
               ))}
             </AccountGroupCard>
