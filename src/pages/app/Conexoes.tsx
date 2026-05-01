@@ -40,6 +40,10 @@ interface PluggyItemRow {
 const STATUS_OK = new Set(["UPDATED", "UPDATING", "PARTIAL_SUCCESS"]);
 const STATUS_REAUTH = new Set(["LOGIN_ERROR", "WAITING_USER_INPUT", "USER_INPUT_TIMEOUT"]);
 
+export function buildPluggyRedirectUri(origin: string) {
+  return `${origin}/app/conexoes`;
+}
+
 const Conexoes = () => {
   const device = useDeviceType();
   const { user } = useAuth();
@@ -110,14 +114,22 @@ const Conexoes = () => {
     }
     setConnecting(true);
     try {
+      const isMobile = device === "mobile";
       const { data, error } = await supabase.functions.invoke("pluggy-connect-token", {
-        body: {},
+        body: {
+          ...(isMobile
+            ? { openFinanceOnly: true, oauthRedirectUri: buildPluggyRedirectUri(window.location.origin) }
+            : {}),
+        },
       });
       if (error) throw error;
       const token = (data as { accessToken?: string })?.accessToken;
+      const openFinanceConnectorIds = (data as { openFinanceConnectorIds?: number[] })?.openFinanceConnectorIds;
       if (!token) throw new Error("Token não retornado pela Pluggy.");
 
-      const isMobile = device === "mobile";
+      if (isMobile && (!Array.isArray(openFinanceConnectorIds) || openFinanceConnectorIds.length === 0)) {
+        throw new Error("Não foi possível carregar os bancos Open Finance disponíveis.");
+      }
 
       // Em mobile, avisamos o usuário antes do redirecionamento ao banco para
       // que ele saiba onde irá inserir suas credenciais (Open Finance abre o
@@ -137,6 +149,7 @@ const Conexoes = () => {
         connectToken: token,
         includeSandbox: false,
         connectorTypes: ["PERSONAL_BANK", "BUSINESS_BANK"],
+        ...(isMobile ? { connectorIds: openFinanceConnectorIds } : {}),
         language: "pt",
         ...(isMobile ? { forceOauthInBrowser: true } : {}),
         onSuccess: async (itemData: { item: { id: string } }) => {
