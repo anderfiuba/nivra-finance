@@ -282,7 +282,13 @@ function loadCycleDay(): number {
 function computeTotals(list: Transaction[]): CycleTotals {
   let entradas = 0;
   let saidas = 0;
+  // Exclui transferências internas (A→B na mesma carteira) e pagamentos de
+  // fatura — não são fluxo novo de dinheiro. Sem isso o Dashboard "double
+  // counta" e infla entradas/saídas. Detalhes em src/lib/transferDetection.ts
+  // e RELATORIO_REGRA_NEGOCIO.md.
+  const excluded = excludeNonCashFlowIds(list);
   for (const t of list) {
+    if (excluded.has(t.id)) continue;
     if (t.type === "entrada") entradas += t.value;
     else saidas += Math.abs(t.value);
   }
