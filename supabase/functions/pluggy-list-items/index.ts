@@ -61,6 +61,7 @@ Deno.serve(async (req) => {
             .update({
               status: it.status ?? row.status,
               execution_status: it.executionStatus ?? row.execution_status,
+              status_detail: it.statusDetail ?? row.status_detail ?? null,
               last_synced_at: it.lastUpdatedAt ?? it.updatedAt ?? row.last_synced_at,
             })
             .eq("pluggy_item_id", row.pluggy_item_id);
@@ -68,6 +69,7 @@ Deno.serve(async (req) => {
             ...row,
             status: it.status ?? row.status,
             execution_status: it.executionStatus ?? row.execution_status,
+            status_detail: it.statusDetail ?? row.status_detail ?? null,
             last_synced_at: it.lastUpdatedAt ?? it.updatedAt ?? row.last_synced_at,
           };
         } catch (e) {
