@@ -351,6 +351,34 @@ const Conexoes = () => {
           })}
         </div>
       )}
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-success" />
+              Você será redirecionado ao seu banco
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2 text-left">
+              <span className="block">
+                A autorização acontece <strong>no ambiente oficial do seu banco</strong>, via
+                Open Finance Brasil. O Nivra nunca recebe sua senha.
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                {device === "mobile"
+                  ? "Quando possível, o app do seu banco será aberto automaticamente."
+                  : "Você concluirá a autorização no site do banco e voltará para o Nivra."}
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmRedirect}>
+              Continuar com segurança
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
