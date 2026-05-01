@@ -1,69 +1,108 @@
+# Corrigir retorno do OAuth Open Finance (mobile) — item se perde após redirect
+
 ## Entendimento
 
-Hoje em `/app/conexoes`, ao clicar em "Nova conexão", abrimos o widget oficial `PluggyConnect` apenas com `connectToken` e `includeSandbox: false`. Sem mais opções, o widget mostra a tela completa de seleção de bancos e, em alguns conectores Open Finance, decide sozinho mostrar QR Code mesmo em celular — foi o que aconteceu com Inter e Bradesco no relato.
+No fluxo atual em `src/pages/app/Conexoes.tsx`, em mobile, configuramos `oauthRedirectUri = /app/conexoes` e abrimos o `PluggyConnect` com `forceOauthInBrowser: true`. O usuário sai do Nivra → autoriza no app do banco (Inter) → o banco redireciona para `/app/conexoes`.
 
-A correção mínima é configurar o widget para que, em mobile, ele use redirect direto ao banco (sem QR), e que Open Finance seja sempre priorizado quando disponível. Não vamos reescrever o fluxo nem criar tela própria de seleção — Pluggy continua dona da seleção e do redirect.
+O problema: ao voltar para o Nivra via redirect do banco, **uma nova aba/contexto da SPA é aberta**. Essa nova instância **não tem o `PluggyConnect` em memória**, portanto:
 
-## Open questions
-Nenhuma — escopo confirmado: apenas correção mobile OF, mantendo PluggyConnect.
+- O callback `onSuccess(itemData)` **nunca dispara** nessa nova aba.
+- `pluggy-register-item` nunca é chamado.
+- O item existe na Pluggy, mas não é gravado em `pluggy_items` no nosso banco.
+- A tela de Conexões aparece vazia mesmo com a autorização concluída no banco.
+
+Esse é exatamente o sintoma relatado (Inter autorizou, voltou para o Nivra, conexão não apareceu).
+
+## Causa raiz
+
+Faltam duas coisas:
+
+1. Pluggy, ao retornar do OAuth, anexa parâmetros à `oauthRedirectUri` (tipicamente `?item_id=...&status=...` ou similar). Não estamos lendo esses parâmetros na volta.
+2. Não temos fallback que reconcilie itens criados na Pluggy mas ausentes no nosso `pluggy_items` (caso onde nem o query param chega — ex.: redirect via app nativo abrindo browser externo diferente do que iniciou).
 
 ## Arquivos a alterar
 
-- `src/pages/app/Conexoes.tsx` — passar opções extras ao `PluggyConnect` baseadas em `useDeviceType()`, ajustar copy de aviso pré-redirect.
+- `src/pages/app/Conexoes.tsx` — detectar `item_id` na query string ao montar e chamar `registerItem`. Limpar a URL após processar.
+- `supabase/functions/pluggy-list-items/index.ts` — (verificar) listar também itens órfãos da Pluggy filtrados pelo `clientUserId = user.id` que ainda não estão no nosso banco, para servir de fallback de reconciliação.
+- `supabase/functions/pluggy-register-item/index.ts` — já aceita `itemId` e valida ownership via JWT; nenhuma mudança de contrato, apenas garantir que retorna o registro.
+- Novo helper `src/lib/pluggyReturnFlow.ts` (puro) — extrai `item_id`/`status`/`error` da `URLSearchParams`, isolável para teste unitário.
+- Novo teste `src/test/regression/pluggyReturnFlow.regression.test.ts` — cobre os formatos de query conhecidos do Pluggy.
 
-Nenhuma mudança em edge function, banco ou outras telas.
+## Plano de implementação
 
-## Plano
+1. **Helper puro (`pluggyReturnFlow.ts`)**
+   - `parsePluggyReturn(search: string): { itemId?: string; status?: string; error?: string }`.
+   - Aceita chaves comuns: `item_id`, `itemId`, `status`, `error`.
 
-1. **Detecção de dispositivo já existe** (`useDeviceType()`). Reutilizar.
+2. **Hook de retorno em `Conexoes.tsx`**
+   - Em `useEffect` de mount, ler `window.location.search`.
+   - Se houver `itemId`: chamar `registerItem(itemId)` (já existente, idempotente via `upsert onConflict pluggy_item_id`), depois `loadItems()`, depois `history.replaceState({}, "", "/app/conexoes")` para limpar a URL.
+   - Se houver `error`: `toast.error` com mensagem amigável e limpar a URL.
+   - Guardar flag local para não reprocessar em hot reload.
 
-2. **Configurar `PluggyConnect` com opções mobile-aware:**
-   - `connectorTypes: ["PERSONAL_BANK", "BUSINESS_BANK"]` — mantém escopo PF/PJ que já suportamos.
-   - Em **mobile**: passar `selectedConnectorIds` vazio, mas habilitar a flag do SDK que prioriza fluxo de redirect (`useApp: true` quando suportada pela versão do SDK; em conjunto com o user-agent mobile, o widget abre o app/site do banco em vez de QR).
-   - Manter `includeSandbox: false`.
+3. **Fallback de reconciliação (defensivo, sem mudar contrato externo)**
+   - Após `loadItems()`, se nenhum item retornar **e** acabamos de voltar de um fluxo de conexão (sessionStorage flag `pluggy:connecting=true` setada antes de `pluggyConnect.init()`), chamar uma rota nova `pluggy-reconcile-items` que:
+     - Lista `/items?clientUserId={user.id}` na Pluggy.
+     - Para cada item ausente em `pluggy_items` do user, faz upsert (mesma lógica de `pluggy-register-item`).
+     - Retorna IDs reconciliados.
+   - Limpa a flag após executar.
+   - Isso cobre o caso em que o redirect do banco abre o navegador em uma instância sem query string (ex.: deep-link para PWA/app já aberto em outra aba).
 
-3. **Pré-aviso de redirect no mobile:** antes de chamar `pluggyConnect.init()`, em mobile, mostrar um `toast` informativo curto: "Você será redirecionado ao seu banco para autorizar com segurança." Em desktop, manter comportamento atual (widget abre com seleção + QR quando aplicável).
+4. **Marcação `pluggy:connecting`**
+   - Antes de `pluggyConnect.init()` em `startConnection`, gravar `sessionStorage.setItem("pluggy:connecting", Date.now().toString())`.
+   - Limpar após `onClose`/`onSuccess`/processamento do retorno.
 
-4. **Sem mudança em desktop:** desktop continua com o widget padrão (QR é aceitável e esperado em desktop).
-
-5. **Validação manual** (não há como testar PluggyConnect em unitário sem mockar o SDK inteiro):
-   - Desktop: abrir conexão, ver lista de bancos, escolher Inter → deve renderizar QR Code (ok).
-   - Mobile (DevTools device emulation + teste real em celular): abrir conexão → toast informativo aparece → ao escolher Inter/Bradesco/Itaú, widget redireciona ao app/site do banco, sem QR.
-   - Bancos sem OF (credential-based, ex: Mercado Pago): widget continua mostrando o form oficial Pluggy — não tocamos nesse fluxo.
-
-## Riscos de regressão
-
-- **SDK Pluggy:** a flag exata para forçar redirect mobile depende da versão do `pluggy-connect-sdk` instalado. Se a opção não existir no contrato atual, o widget já decide via user-agent — então no pior caso a mudança é neutra (não piora). Verificaremos a versão antes de aplicar e usaremos apenas opções documentadas.
-- **Desktop:** nenhum impacto — só adicionamos comportamento condicional para mobile.
-- **Reautenticação (`itemId` em `pluggy-connect-token`):** continua funcionando, não mexemos nessa rota.
-- **Sync pós-conexão:** `pluggy-register-item` + `pluggy-sync-data` continuam idênticos.
+5. **Testes**
+   - Unitário: `parsePluggyReturn` com várias query strings (incluindo vazio, `?item_id=abc`, `?itemId=abc&status=UPDATED`, `?error=USER_CANCELLED`).
+   - Regressão existente `pluggyMobileRedirect.regression.test.ts` continua válida.
 
 ## Detalhes técnicos
 
-Mudança concentrada em `startConnection()` de `Conexoes.tsx`:
+```text
+Fluxo corrigido (mobile):
 
-```ts
-const isMobile = device === "mobile";
+  startConnection
+    ├─ sessionStorage["pluggy:connecting"] = ts
+    ├─ POST /pluggy-connect-token { openFinanceOnly, oauthRedirectUri }
+    └─ PluggyConnect.init() → abre browser do sistema
+          └─ App do banco (Inter) → autoriza
+                └─ Redirect → /app/conexoes?item_id=<id>&status=...
+                      ├─ useEffect lê item_id
+                      ├─ registerItem(item_id) → upsert pluggy_items
+                      ├─ pluggy-sync-data { itemId }
+                      ├─ loadItems()
+                      └─ history.replaceState → /app/conexoes (limpa URL)
 
-if (isMobile) {
-  toast.info("Você será redirecionado ao seu banco para autorizar com segurança.");
-}
-
-const pluggyConnect = new PluggyConnect({
-  connectToken: token,
-  includeSandbox: false,
-  connectorTypes: ["PERSONAL_BANK", "BUSINESS_BANK"],
-  // Em mobile, instruímos o widget a preferir abrir o app/site do banco
-  // (Open Finance redirect) em vez de gerar QR Code.
-  ...(isMobile ? { useApp: true } : {}),
-  onSuccess: async (itemData) => { await registerItem(itemData.item.id); },
-  onError: (err) => { toast.error("Conexão não concluída", { description: err?.message }); },
-  onClose: () => { setConnecting(false); },
-});
+Fallback (sem query param):
+  loadItems vazio + flag "pluggy:connecting" recente (<10min)
+    └─ POST /pluggy-reconcile-items
+          └─ Lista itens do user na Pluggy → upsert os ausentes
 ```
 
-Antes de implementar, confirmaremos no `package.json` a versão do `pluggy-connect-sdk` e validaremos que `useApp`/equivalente existe naquela versão. Se não existir, mantemos somente `connectorTypes` + toast informativo (que já é melhoria) e documentamos no commit.
+- `registerItem` já é idempotente (upsert por `pluggy_item_id`), então rodar em ambos os caminhos (callback `onSuccess` no desktop e query-param/reconcile no mobile) é seguro.
+- Não alteramos RLS nem schema.
+- Não alteramos o token: `oauthRedirectUri` já é enviado em `payload.options`.
 
-## Sugestão de commit
+## Riscos de regressão
 
-`fix(conexoes): forçar redirect Open Finance em mobile no PluggyConnect`
+- **Desktop QR Code**: continua usando `onSuccess` callback in-memory; nenhuma mudança de comportamento.
+- **Reauth de item existente**: `oauthRedirectUri` continua sendo enviado quando aplicável; o reconcile faz upsert por `pluggy_item_id`, então não duplica.
+- **URL cleanup**: usar `history.replaceState` evita loop de re-render via React Router.
+- **Sync após reconcile**: disparar `pluggy-sync-data` para cada item reconciliado, igual ao `registerItem`.
+
+## Validação
+
+- **Manual mobile (Inter/Bradesco)**: iniciar conexão → autorizar no app do banco → confirmar que ao voltar a conta aparece em `/app/conexoes` sem refresh manual.
+- **Manual mobile cancelamento**: cancelar no banco → confirmar toast de erro e URL limpa.
+- **Manual desktop**: QR Code continua funcionando (sem regressão).
+- **Automatizado**: `parsePluggyReturn` cobre formatos de query.
+
+## Escopo NÃO incluído
+
+- Webhooks da Pluggy (`item/created`) — fora do escopo mínimo, pode ser próximo passo se reconcile não for suficiente.
+- Mudanças no widget desktop.
+- Mudanças em outras funções edge.
+
+## Commit sugerido
+
+`fix(conexoes): tratar retorno OAuth mobile e reconciliar itens órfãos da Pluggy`

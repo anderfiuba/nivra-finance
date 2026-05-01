@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,11 @@ import { PluggyConnect } from "pluggy-connect-sdk";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatRelativeTime } from "@/lib/format";
 import { DisconnectButton } from "@/components/contas/DisconnectButton";
+import {
+  parsePluggyReturn,
+  markConnectionStarted,
+  consumeConnectionFlag,
+} from "@/lib/pluggyReturnFlow";
 
 // Linha de pluggy_items no Cloud + status atualizado.
 interface PluggyItemRow {
@@ -51,6 +56,7 @@ const Conexoes = () => {
   const [loadingList, setLoadingList] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const returnHandledRef = useRef(false);
 
   const loadItems = useCallback(async () => {
     if (!user) return;
@@ -107,6 +113,72 @@ const Conexoes = () => {
     [loadItems],
   );
 
+  // Reconcilia itens criados na Pluggy mas ausentes no nosso banco.
+  // Usado como fallback quando o redirect OAuth do banco abre uma instância
+  // nova da SPA e o callback in-memory `onSuccess` do PluggyConnect não roda.
+  const reconcileMissingItems = useCallback(async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke("pluggy-reconcile-items", {
+        body: {},
+      });
+      if (error) throw error;
+      const reconciled: string[] = Array.isArray(
+        (data as { reconciled?: string[] })?.reconciled,
+      )
+        ? (data as { reconciled: string[] }).reconciled
+        : [];
+      if (reconciled.length > 0) {
+        toast.success(
+          reconciled.length === 1
+            ? "Conta conectada! Sincronizando dados…"
+            : `${reconciled.length} contas conectadas! Sincronizando dados…`,
+        );
+        await Promise.all(
+          reconciled.map((itemId) =>
+            supabase.functions.invoke("pluggy-sync-data", { body: { itemId } }),
+          ),
+        );
+        await loadItems();
+      }
+    } catch (err) {
+      // Reconcile é defensivo — falha silenciosa no console, sem toast ruidoso.
+      console.warn("[conexoes] reconcile falhou", err);
+    }
+  }, [loadItems]);
+
+  // Trata retorno do OAuth/Open Finance via query string (mobile).
+  // Pluggy redireciona para /app/conexoes?item_id=... após autorização.
+  useEffect(() => {
+    if (!user) return;
+    if (returnHandledRef.current) return;
+    if (typeof window === "undefined") return;
+
+    const parsed = parsePluggyReturn(window.location.search);
+    const hadConnectingFlag = consumeConnectionFlag();
+
+    if (parsed.itemId) {
+      returnHandledRef.current = true;
+      // Limpa a URL imediatamente para evitar reprocessamento em refresh.
+      window.history.replaceState({}, "", window.location.pathname);
+      registerItem(parsed.itemId);
+      return;
+    }
+
+    if (parsed.error) {
+      returnHandledRef.current = true;
+      window.history.replaceState({}, "", window.location.pathname);
+      toast.error("Conexão não concluída", { description: parsed.error });
+      return;
+    }
+
+    // Sem item_id na URL, mas sabemos que o usuário acabou de iniciar uma
+    // conexão nesta sessão → reconciliar contra a Pluggy.
+    if (hadConnectingFlag) {
+      returnHandledRef.current = true;
+      reconcileMissingItems();
+    }
+  }, [user, registerItem, reconcileMissingItems]);
+
   const startConnection = async () => {
     if (!user) {
       toast.error("Faça login para conectar uma conta.");
@@ -153,9 +225,15 @@ const Conexoes = () => {
         language: "pt",
         ...(isMobile ? { forceOauthInBrowser: true } : {}),
         onSuccess: async (itemData: { item: { id: string } }) => {
+          // Callback in-memory — só roda quando o widget volta na MESMA aba
+          // (desktop/QR ou mobile sem redirect cross-context). Em mobile com
+          // redirect OAuth real, o tratamento acontece via query string no
+          // useEffect acima.
+          sessionStorage.removeItem("pluggy:connecting");
           await registerItem(itemData.item.id);
         },
         onError: (err: { message?: string }) => {
+          sessionStorage.removeItem("pluggy:connecting");
           toast.error("Conexão não concluída", {
             description: err?.message ?? "Tente novamente.",
           });
@@ -164,6 +242,10 @@ const Conexoes = () => {
           setConnecting(false);
         },
       });
+      // Marca que o usuário iniciou uma conexão. Se o redirect OAuth abrir
+      // uma instância nova da SPA sem query param, o useEffect de retorno
+      // detecta esta flag e dispara a reconciliação.
+      markConnectionStarted();
       pluggyConnect.init();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Falha ao iniciar conexão.";
