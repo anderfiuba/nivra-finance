@@ -117,6 +117,19 @@ export interface PluggyItemSummary {
   connectorImageUrl: string | null;
   connectorPrimaryColor: string | null;
   status: string | null;
+  /**
+   * Estado da última execução do item (SUCCESS, PARTIAL_SUCCESS,
+   * USER_INPUT_TIMEOUT, ERROR…). Diferente de `status`, que descreve o
+   * estado geral do item; `executionStatus` é específico da última sync.
+   */
+  executionStatus: string | null;
+  /**
+   * Detalhamento por produto (ACCOUNTS, TRANSACTIONS, CREDIT_CARDS,
+   * INVESTMENTS, IDENTITY…) retornado pela Pluggy quando há
+   * PARTIAL_SUCCESS. Permite mostrar ao usuário quais permissões ele
+   * negou ou quais produtos falharam no banco.
+   */
+  statusDetail: Record<string, unknown> | null;
   lastSyncedAt: string | null;
   /** Número de contas vinculadas a este item. */
   accountCount: number;
@@ -535,6 +548,8 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           connectorImageUrl: it.connector_image_url,
           connectorPrimaryColor: it.connector_primary_color,
           status: it.status,
+          executionStatus: it.execution_status ?? null,
+          statusDetail: (it.status_detail as Record<string, unknown> | null) ?? null,
           lastSyncedAt: it.last_synced_at ?? it.updated_at ?? null,
           accountCount: accountsByItem.get(it.pluggy_item_id) ?? 0,
         })),
