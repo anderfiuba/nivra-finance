@@ -3,16 +3,6 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
   CheckCircle2,
   Plus,
   ShieldCheck,
@@ -57,7 +47,6 @@ const Conexoes = () => {
   const [loadingList, setLoadingList] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
-  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const loadItems = useCallback(async () => {
     if (!user) return;
@@ -114,7 +103,7 @@ const Conexoes = () => {
     [loadItems],
   );
 
-  const openConnectWidget = async () => {
+  const startConnection = async () => {
     if (!user) {
       toast.error("Faça login para conectar uma conta.");
       return;
@@ -128,14 +117,12 @@ const Conexoes = () => {
       const token = (data as { accessToken?: string })?.accessToken;
       if (!token) throw new Error("Token não retornado pela Pluggy.");
 
-      // Widget oficial Pluggy Connect.
-      // Filtramos para mostrar apenas instituições com Open Finance:
-      // o widget redireciona o usuário ao banco (mobile abre o app quando suportado)
-      // e nenhuma credencial bancária é digitada dentro do Nivra.
+      // Abre o widget oficial Pluggy Connect — funciona desktop e mobile.
+      // No mobile o próprio widget faz o redirect para o app do banco.
+      // No desktop ele renderiza o QR Code e fluxo seleção de banco.
       const pluggyConnect = new PluggyConnect({
         connectToken: token,
         includeSandbox: false,
-        connectorTypes: ["PERSONAL_BANK", "BUSINESS_BANK"],
         onSuccess: async (itemData: { item: { id: string } }) => {
           await registerItem(itemData.item.id);
         },
@@ -154,19 +141,6 @@ const Conexoes = () => {
       toast.error("Não foi possível iniciar a conexão", { description: message });
       setConnecting(false);
     }
-  };
-
-  const startConnection = () => {
-    if (!user) {
-      toast.error("Faça login para conectar uma conta.");
-      return;
-    }
-    setConfirmOpen(true);
-  };
-
-  const handleConfirmRedirect = async () => {
-    setConfirmOpen(false);
-    await openConnectWidget();
   };
 
   return (
@@ -351,34 +325,6 @@ const Conexoes = () => {
           })}
         </div>
       )}
-
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <ShieldCheck className="h-5 w-5 text-success" />
-              Você será redirecionado ao seu banco
-            </AlertDialogTitle>
-            <AlertDialogDescription className="space-y-2 text-left">
-              <span className="block">
-                A autorização acontece <strong>no ambiente oficial do seu banco</strong>, via
-                Open Finance Brasil. O Nivra nunca recebe sua senha.
-              </span>
-              <span className="block text-xs text-muted-foreground">
-                {device === "mobile"
-                  ? "Quando possível, o app do seu banco será aberto automaticamente."
-                  : "Você concluirá a autorização no site do banco e voltará para o Nivra."}
-              </span>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirmRedirect}>
-              Continuar com segurança
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 };
