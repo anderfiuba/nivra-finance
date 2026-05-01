@@ -373,7 +373,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         supabase
           .from("pluggy_items")
           .select(
-            "id,pluggy_item_id,connector_name,connector_image_url,connector_primary_color,status,last_synced_at,updated_at",
+            "id,pluggy_item_id,connector_name,connector_image_url,connector_primary_color,status,execution_status,status_detail,last_synced_at,updated_at",
           )
           .order("connector_name", { ascending: true }),
         supabase
