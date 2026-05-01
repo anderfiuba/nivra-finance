@@ -117,12 +117,28 @@ const Conexoes = () => {
       const token = (data as { accessToken?: string })?.accessToken;
       if (!token) throw new Error("Token não retornado pela Pluggy.");
 
-      // Abre o widget oficial Pluggy Connect — funciona desktop e mobile.
-      // No mobile o próprio widget faz o redirect para o app do banco.
-      // No desktop ele renderiza o QR Code e fluxo seleção de banco.
+      const isMobile = device === "mobile";
+
+      // Em mobile, avisamos o usuário antes do redirecionamento ao banco para
+      // que ele saiba onde irá inserir suas credenciais (Open Finance abre o
+      // app/site oficial do banco — nunca pedimos senha dentro do Nivra).
+      if (isMobile) {
+        toast.info("Você será redirecionado ao seu banco para autorizar com segurança.");
+      }
+
+      // Abre o widget oficial Pluggy Connect.
+      // - connectorTypes: limita à lista de bancos PF/PJ que suportamos.
+      // - forceOauthInBrowser: em mobile, força o fluxo Open Finance a abrir
+      //   no navegador do sistema (que dispara o app do banco via deep-link),
+      //   em vez de cair no QR Code dentro do iframe do widget — que era o
+      //   bug observado com Inter e Bradesco.
+      // - language: PT-BR explícito para não cair em fallback de idioma.
       const pluggyConnect = new PluggyConnect({
         connectToken: token,
         includeSandbox: false,
+        connectorTypes: ["PERSONAL_BANK", "BUSINESS_BANK"],
+        language: "pt",
+        ...(isMobile ? { forceOauthInBrowser: true } : {}),
         onSuccess: async (itemData: { item: { id: string } }) => {
           await registerItem(itemData.item.id);
         },
