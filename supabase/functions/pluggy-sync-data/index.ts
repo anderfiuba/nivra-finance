@@ -560,6 +560,15 @@ Deno.serve(async (req) => {
       .update({
         status: itemData.status ?? null,
         execution_status: itemData.executionStatus ?? null,
+        // status_detail descreve, produto a produto (ACCOUNTS, TRANSACTIONS,
+        // CREDIT_CARDS, INVESTMENTS, IDENTITY...), o resultado individual da
+        // sincronização. Em PARTIAL_SUCCESS é a única forma de saber qual
+        // produto o usuário não autorizou ou qual falhou no banco.
+        status_detail: itemData.statusDetail ?? null,
+        last_sync_warning:
+          itemData.executionStatus && itemData.executionStatus !== "SUCCESS"
+            ? String(itemData.executionStatus)
+            : null,
         last_synced_at: new Date().toISOString(),
       })
       .eq("pluggy_item_id", body.itemId)
