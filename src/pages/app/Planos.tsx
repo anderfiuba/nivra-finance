@@ -22,7 +22,7 @@ const Planos = () => {
   return (
     <div className="p-6 md:p-8 space-y-6 max-w-[1600px] mx-auto">
       <div>
-        <h1 className="text-2xl md:text-3xl font-bold text-foreground tracking-tight">Planos</h1>
+        <h1 className="text-2xl md:text-3xl font-semibold text-foreground tracking-tight">Planos</h1>
         <p className="mt-1 text-sm text-muted-foreground">Escolha o nível de inteligência que você precisa. Cancele quando quiser.</p>
       </div>
 
@@ -33,7 +33,7 @@ const Planos = () => {
             className={`relative p-7 transition-smooth ${
               plan.popular
                 ? "bg-card border-primary/50 shadow-elegant"
-                : "bg-gradient-card border-border hover:border-primary/30"
+                : "bg-card shadow-none border-border hover:border-primary/30"
             }`}
           >
             {plan.popular && (

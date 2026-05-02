@@ -289,11 +289,11 @@ const Faturas = () => {
   if (creditAccounts.length === 0) {
     return (
       <div className="p-6 md:p-8 max-w-[1600px] mx-auto">
-        <h1 className="text-2xl md:text-3xl font-bold text-foreground tracking-tight">Faturas</h1>
+        <h1 className="text-2xl md:text-3xl font-semibold text-foreground tracking-tight">Faturas</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Detalhamento das faturas do seu cartão de crédito mês a mês.
         </p>
-        <Card className="mt-6 bg-gradient-card border-border p-12 text-center">
+        <Card className="mt-6 bg-card shadow-none border-border p-12 text-center">
           <CreditCard className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
           <p className="text-base font-semibold text-foreground">Nenhum cartão conectado</p>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -314,7 +314,7 @@ const Faturas = () => {
       <div>
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold text-foreground tracking-tight">Faturas</h1>
+            <h1 className="text-2xl md:text-3xl font-semibold text-foreground tracking-tight">Faturas</h1>
             <p className="mt-1 text-sm text-muted-foreground">
               Visão consolidada — fatura fechada, ciclo atual estimado e próximas faturas dos seus cartões.
             </p>
@@ -378,7 +378,7 @@ const Faturas = () => {
       {openItems.length > 0 && (
         <section>
           <h2 className="text-lg font-bold text-foreground tracking-tight">Ciclos de Faturamento</h2>
-          <Card className="mt-3 bg-gradient-card border-border overflow-hidden divide-y divide-border">
+          <Card className="mt-3 bg-card shadow-none border-border overflow-hidden divide-y divide-border">
             {openItems.map((it, idx) => (
               <CicloRow
                 key={`${it.account.id}-${it.status}-${idx}`}
@@ -406,7 +406,7 @@ const Faturas = () => {
       {upcomingItems.length > 0 && (
         <section>
           <h2 className="text-lg font-bold text-foreground tracking-tight">Próximas Faturas</h2>
-          <Card className="mt-3 bg-gradient-card border-border overflow-hidden divide-y divide-border">
+          <Card className="mt-3 bg-card shadow-none border-border overflow-hidden divide-y divide-border">
             {upcomingItems.map((it, idx) => (
               <CicloRow
                 key={`upcoming-${it.account.id}-${idx}`}
@@ -434,7 +434,7 @@ const Faturas = () => {
       {paidItems.length > 0 && (
         <section>
           <h2 className="text-lg font-bold text-foreground tracking-tight">Recentemente Pagas</h2>
-          <Card className="mt-3 bg-gradient-card border-border overflow-hidden divide-y divide-border">
+          <Card className="mt-3 bg-card shadow-none border-border overflow-hidden divide-y divide-border">
             {paidItems.map(({ bill, account }) => (
               <CicloRow
                 key={bill.id}

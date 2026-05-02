@@ -1,6 +1,7 @@
 import { Outlet } from "react-router-dom";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
+import { BottomNav } from "@/components/BottomNav";
 import { Bell, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -16,7 +17,7 @@ export default function AppLayout() {
         <AppSidebar />
         <div className="flex-1 flex flex-col min-w-0">
           <header className="h-16 flex items-center gap-4 border-b border-border bg-background/80 backdrop-blur px-4 sticky top-0 z-30">
-            <SidebarTrigger className="text-muted-foreground hover:text-foreground" />
+            <SidebarTrigger className="text-muted-foreground hover:text-foreground hidden md:inline-flex" />
             <div className="flex-1 max-w-md">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -35,9 +36,10 @@ export default function AppLayout() {
               <Bell className="h-4 w-4" />
             </Button>
           </header>
-          <main className="flex-1 overflow-auto">
+          <main className="flex-1 overflow-auto pb-20 md:pb-0">
             <Outlet />
           </main>
+          <BottomNav />
         </div>
       </div>
       <ConsentGate />

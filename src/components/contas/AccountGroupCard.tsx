@@ -57,7 +57,7 @@ export function AccountGroupCard({
       : null;
 
   return (
-    <Card className="bg-gradient-card border-border overflow-hidden">
+    <Card className="bg-card shadow-none border-border overflow-hidden">
       <Collapsible open={open} onOpenChange={setOpen}>
         <CollapsibleTrigger asChild>
           <button

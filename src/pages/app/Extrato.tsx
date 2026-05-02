@@ -1,7 +1,14 @@
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FilterChip } from "@/components/ui/filter-chip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Download, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -145,7 +152,7 @@ const Extrato = () => {
       {/* Cabeçalho */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="min-w-0">
-          <h1 className="text-xl md:text-3xl font-bold text-foreground tracking-tight">Extrato</h1>
+          <h1 className="text-xl md:text-3xl font-semibold text-foreground tracking-tight">Extrato</h1>
           <p className="mt-1 text-xs md:text-sm text-muted-foreground">
             Histórico de até 12 meses. Toque em uma transação para ver detalhes.
           </p>
@@ -157,8 +164,81 @@ const Extrato = () => {
 
       {/* Seletor de período + resumo */}
       <div className="space-y-3 md:space-y-4">
-        <div className="flex items-center justify-between gap-2">
+        {/* Linha de chips de filtro (estilo apps fintech) */}
+        <div className="flex items-center gap-2 overflow-x-auto -mx-1 px-1 pb-1 [&::-webkit-scrollbar]:hidden">
           <PeriodFilter months={months} value={period} onChange={handlePeriodChange} />
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <FilterChip
+                label="Categorias"
+                active={category !== "all"}
+                aria-label="Filtrar categoria"
+              >
+                {category === "all" ? "Categorias" : category}
+              </FilterChip>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="max-h-80 overflow-y-auto w-56">
+              <DropdownMenuRadioGroup value={category} onValueChange={setCategory}>
+                <DropdownMenuRadioItem value="all">Todas categorias</DropdownMenuRadioItem>
+                {parentCategories.map((c) => (
+                  <DropdownMenuRadioItem key={c.id} value={c.label}>
+                    {c.label}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <FilterChip
+                label="Tipos de transação"
+                active={flow !== "all"}
+                aria-label="Filtrar tipo de transação"
+              >
+                {flow === "all"
+                  ? "Tipos de transação"
+                  : flow === "entrada"
+                    ? "Apenas entradas"
+                    : "Apenas saídas"}
+              </FilterChip>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56">
+              <DropdownMenuRadioGroup
+                value={flow}
+                onValueChange={(v) => setFlow(v as "all" | "entrada" | "saida")}
+              >
+                <DropdownMenuRadioItem value="all">Entradas e saídas</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="entrada">Apenas entradas</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="saida">Apenas saídas</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {accountOptions.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <FilterChip
+                  label="Conta"
+                  active={account !== "all"}
+                  aria-label="Filtrar conta"
+                >
+                  {account === "all" ? "Conta" : account}
+                </FilterChip>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="max-h-80 overflow-y-auto w-56">
+                <DropdownMenuRadioGroup value={account} onValueChange={setAccount}>
+                  <DropdownMenuRadioItem value="all">Todas as contas</DropdownMenuRadioItem>
+                  {accountOptions.map((a) => (
+                    <DropdownMenuRadioItem key={a} value={a}>
+                      {a}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
         <MonthSummaryCard
           count={filteredTotals.count}
@@ -167,57 +247,19 @@ const Extrato = () => {
         />
       </div>
 
-      {/* Filtros (busca + conta + categoria) */}
-      <Card className="bg-gradient-card border-border p-3 md:p-4">
-        <div className="flex flex-col md:flex-row gap-2 md:gap-3">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar por descrição..."
-              className="pl-9 bg-input border-border h-9 md:h-10"
-            />
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            <Select value={flow} onValueChange={(v) => setFlow(v as "all" | "entrada" | "saida")}>
-              <SelectTrigger className="flex-1 md:w-40 bg-input border-border h-9 md:h-10">
-                <SelectValue placeholder="Fluxo" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Entradas e saídas</SelectItem>
-                <SelectItem value="entrada">Apenas entradas</SelectItem>
-                <SelectItem value="saida">Apenas saídas</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={account} onValueChange={setAccount}>
-              <SelectTrigger className="flex-1 md:w-48 bg-input border-border h-9 md:h-10">
-                <SelectValue placeholder="Conta" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas as contas</SelectItem>
-                {accountOptions.map((a) => (
-                  <SelectItem key={a} value={a}>{a}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={category} onValueChange={setCategory}>
-              <SelectTrigger className="flex-1 md:w-48 bg-input border-border h-9 md:h-10">
-                <SelectValue placeholder="Categoria" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas categorias</SelectItem>
-                {parentCategories.map((c) => (
-                  <SelectItem key={c.id} value={c.label}>{c.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-      </Card>
+      {/* Busca textual */}
+      <div className="relative">
+        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" strokeWidth={2} />
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Pesquisar"
+          className="pl-10 h-11 rounded-full bg-background border-border"
+        />
+      </div>
 
       {/* Lista de transações */}
-      <Card className="bg-gradient-card border-border overflow-hidden">
+      <Card className="bg-card border-border overflow-hidden shadow-none">
         <div className="divide-y divide-border">
           {filtered.length === 0 ? (
             <div className="p-10 md:p-12 text-center text-sm text-muted-foreground">

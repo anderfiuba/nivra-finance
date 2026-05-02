@@ -294,11 +294,11 @@ const Categorizacao = () => {
                     !hasChildren && "opacity-0",
                   )}
                 />
-                <div className="h-9 w-9 rounded-lg bg-secondary/60 border border-border flex items-center justify-center shrink-0">
+                <div className="h-9 w-9 rounded-lg flex items-center justify-center shrink-0">
                   <CategoryIcon
                     label={label}
-                    size={18}
-                    className="text-foreground/80"
+                    size={20}
+                    className="text-muted-foreground"
                   />
                 </div>
                 <div className="min-w-0 flex-1">
@@ -404,11 +404,11 @@ const Categorizacao = () => {
                   return (
                     <div key={c.label} className="py-1.5">
                       <div className="flex items-start gap-3">
-                        <div className="h-7 w-7 rounded-md bg-secondary/40 border border-border/60 flex items-center justify-center shrink-0 mt-0.5">
+                        <div className="h-7 w-7 rounded-md flex items-center justify-center shrink-0 mt-0.5">
                           <CategoryIcon
                             label={c.label}
-                            size={14}
-                            className="text-muted-foreground"
+                            size={18}
+                            className="text-muted-foreground/80"
                           />
                         </div>
                         <div className="min-w-0 flex-1">
@@ -441,7 +441,7 @@ const Categorizacao = () => {
     >
       {/* Cabeçalho */}
       <div>
-        <h1 className="text-2xl md:text-3xl font-bold text-foreground tracking-tight">
+        <h1 className="text-2xl md:text-3xl font-semibold text-foreground tracking-tight">
           Ciclo Financeiro
         </h1>
         <p className="mt-1 text-xs md:text-sm text-muted-foreground">
@@ -483,7 +483,7 @@ const Categorizacao = () => {
       />
 
       {/* Visão geral: gráfico circular + total gasto */}
-      <Card className="bg-gradient-card border-border p-4 md:p-6">
+      <Card className="bg-card shadow-none border-border p-4 md:p-6">
         <div className="flex items-center gap-2 mb-3">
           <PieIcon className="h-4 w-4 text-primary" />
           <h3 className="text-xs md:text-sm font-semibold text-foreground uppercase tracking-wider">
@@ -573,7 +573,7 @@ const Categorizacao = () => {
       </Card>
 
       {/* 4º Gadget: Orçamentos do mês */}
-      <Card className="bg-gradient-card border-border p-4 md:p-6">
+      <Card className="bg-card shadow-none border-border p-4 md:p-6">
         <div className="flex items-center justify-between gap-2 mb-3">
           <div className="flex items-center gap-1.5 min-w-0">
             <PieIcon className="h-4 w-4 text-primary shrink-0" />
@@ -669,7 +669,7 @@ const Categorizacao = () => {
         </div>
 
         {/* Lista de categorias. */}
-        <Card className="bg-gradient-card border-border overflow-hidden">
+        <Card className="bg-card shadow-none border-border overflow-hidden">
           <div className="flex flex-col gap-2 md:gap-0 md:divide-y md:divide-border p-2 md:p-0">
             {onlyWithSpending ? (
               applyLimitFilter(labelsWithSpending).length > 0 ? (

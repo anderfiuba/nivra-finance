@@ -130,7 +130,7 @@ function StatCard({ icon, iconBg, label, value, subtitle, barValue, barClass, on
   );
 
   const baseClass = cn(
-    "bg-gradient-card border-border p-3 sm:p-4 flex flex-col gap-2 transition-smooth rounded-xl border",
+    "bg-card shadow-none border-border p-3 sm:p-4 flex flex-col gap-2 transition-smooth rounded-xl border",
     onClick && "cursor-pointer hover:bg-card/70 text-left",
   );
 
