@@ -33,7 +33,7 @@ const Planos = () => {
             className={`relative p-7 transition-smooth ${
               plan.popular
                 ? "bg-card border-primary/50 shadow-elegant"
-                : "bg-gradient-card border-border hover:border-primary/30"
+                : "bg-card shadow-none border-border hover:border-primary/30"
             }`}
           >
             {plan.popular && (

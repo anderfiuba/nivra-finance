@@ -54,7 +54,7 @@ const Configuracoes = () => {
         <p className="mt-1 text-sm text-muted-foreground">Gerencie sua conta, segurança e preferências.</p>
       </div>
 
-      <Card className="bg-gradient-card border-border p-6">
+      <Card className="bg-card shadow-none border-border p-6">
         <h3 className="text-base font-semibold text-foreground">Perfil</h3>
         <p className="text-xs text-muted-foreground mt-1">Informações da sua conta.</p>
         <Separator className="my-5" />
@@ -73,7 +73,7 @@ const Configuracoes = () => {
         </div>
       </Card>
 
-      <Card className="bg-gradient-card border-border p-6">
+      <Card className="bg-card shadow-none border-border p-6">
         <div className="flex items-center gap-3">
           <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
             <CalendarRange className="h-4 w-4 text-primary" />
@@ -121,7 +121,7 @@ const Configuracoes = () => {
         </div>
       </Card>
 
-      <Card className="bg-gradient-card border-border p-6">
+      <Card className="bg-card shadow-none border-border p-6">
         <h3 className="text-base font-semibold text-foreground">Segurança</h3>
         <p className="text-xs text-muted-foreground mt-1">Mantenha sua conta protegida.</p>
         <Separator className="my-5" />
@@ -142,7 +142,7 @@ const Configuracoes = () => {
         </div>
       </Card>
 
-      <Card className="bg-gradient-card border-border p-6">
+      <Card className="bg-card shadow-none border-border p-6">
         <h3 className="text-base font-semibold text-foreground">Preferências</h3>
         <p className="text-xs text-muted-foreground mt-1">Personalize sua experiência.</p>
         <Separator className="my-5" />

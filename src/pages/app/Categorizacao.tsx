@@ -483,7 +483,7 @@ const Categorizacao = () => {
       />
 
       {/* Visão geral: gráfico circular + total gasto */}
-      <Card className="bg-gradient-card border-border p-4 md:p-6">
+      <Card className="bg-card shadow-none border-border p-4 md:p-6">
         <div className="flex items-center gap-2 mb-3">
           <PieIcon className="h-4 w-4 text-primary" />
           <h3 className="text-xs md:text-sm font-semibold text-foreground uppercase tracking-wider">
@@ -573,7 +573,7 @@ const Categorizacao = () => {
       </Card>
 
       {/* 4º Gadget: Orçamentos do mês */}
-      <Card className="bg-gradient-card border-border p-4 md:p-6">
+      <Card className="bg-card shadow-none border-border p-4 md:p-6">
         <div className="flex items-center justify-between gap-2 mb-3">
           <div className="flex items-center gap-1.5 min-w-0">
             <PieIcon className="h-4 w-4 text-primary shrink-0" />
@@ -669,7 +669,7 @@ const Categorizacao = () => {
         </div>
 
         {/* Lista de categorias. */}
-        <Card className="bg-gradient-card border-border overflow-hidden">
+        <Card className="bg-card shadow-none border-border overflow-hidden">
           <div className="flex flex-col gap-2 md:gap-0 md:divide-y md:divide-border p-2 md:p-0">
             {onlyWithSpending ? (
               applyLimitFilter(labelsWithSpending).length > 0 ? (

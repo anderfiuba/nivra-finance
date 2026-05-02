@@ -109,12 +109,12 @@ const Contas = () => {
       </div>
 
       {isLoading && !hasAnything ? (
-        <Card className="bg-gradient-card border-border p-10 flex items-center justify-center">
+        <Card className="bg-card shadow-none border-border p-10 flex items-center justify-center">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground mr-2" />
           <span className="text-sm text-muted-foreground">Carregando contas…</span>
         </Card>
       ) : !hasAnything ? (
-        <Card className="bg-gradient-card border-border p-10 flex flex-col items-center text-center">
+        <Card className="bg-card shadow-none border-border p-10 flex flex-col items-center text-center">
           <div className="h-14 w-14 rounded-full bg-secondary/60 flex items-center justify-center mb-4">
             <Wallet className="h-6 w-6 text-muted-foreground" />
           </div>

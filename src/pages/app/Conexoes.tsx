@@ -307,7 +307,7 @@ const Conexoes = () => {
         </div>
       </Card>
 
-      <Card className="bg-gradient-card border-border p-5 flex items-start gap-4">
+      <Card className="bg-card shadow-none border-border p-5 flex items-start gap-4">
         <div className="h-10 w-10 rounded-lg bg-success/10 flex items-center justify-center shrink-0">
           <ShieldCheck className="h-5 w-5 text-success" />
         </div>
@@ -350,14 +350,14 @@ const Conexoes = () => {
       )}
 
       {loadingList && !items && (
-        <Card className="bg-gradient-card border-border p-8 flex items-center justify-center">
+        <Card className="bg-card shadow-none border-border p-8 flex items-center justify-center">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground mr-2" />
           <span className="text-sm text-muted-foreground">Carregando conexões…</span>
         </Card>
       )}
 
       {!loadingList && items && items.length === 0 && !listError && (
-        <Card className="bg-gradient-card border-border p-10 flex flex-col items-center text-center">
+        <Card className="bg-card shadow-none border-border p-10 flex flex-col items-center text-center">
           <div className="h-14 w-14 rounded-full bg-secondary/60 flex items-center justify-center mb-4">
             <Plug className="h-6 w-6 text-muted-foreground" />
           </div>
@@ -388,7 +388,7 @@ const Conexoes = () => {
             return (
               <Card
                 key={it.id}
-                className="bg-gradient-card border-border p-5 flex items-center gap-4 flex-wrap"
+                className="bg-card shadow-none border-border p-5 flex items-center gap-4 flex-wrap"
               >
                 <div
                   className="h-11 w-11 rounded-lg flex items-center justify-center shrink-0 overflow-hidden bg-secondary/60"
