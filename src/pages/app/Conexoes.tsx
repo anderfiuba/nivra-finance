@@ -307,6 +307,30 @@ const Conexoes = () => {
         </div>
       </div>
 
+      {isFree && (items?.length ?? 0) >= 1 && (
+        <Card className="bg-primary/5 border-primary/30 p-4 flex items-start gap-3">
+          <div className="h-9 w-9 rounded-lg bg-primary/15 flex items-center justify-center shrink-0">
+            <Crown className="h-4 w-4 text-primary" />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-foreground">
+              Limite do plano Free atingido
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">
+              Conexões bancárias ilimitadas fazem parte do plano Plus. Faça upgrade para conectar
+              quantas contas quiser.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => setUpgradeOpen(true)}
+            className="bg-gradient-primary text-primary-foreground hover:opacity-90"
+          >
+            <Crown className="h-3.5 w-3.5 mr-1.5" /> Assinar Plus
+          </Button>
+        </Card>
+      )}
+
       <Card className="bg-primary/5 border-primary/30 p-4 flex items-start gap-3">
         <div className="h-9 w-9 rounded-lg bg-primary/15 flex items-center justify-center shrink-0">
           <Clock className="h-4 w-4 text-primary" />
@@ -462,6 +486,7 @@ const Conexoes = () => {
           })}
         </div>
       )}
+      <StripeCheckoutDialog open={upgradeOpen} onOpenChange={setUpgradeOpen} />
     </div>
   );
 };
