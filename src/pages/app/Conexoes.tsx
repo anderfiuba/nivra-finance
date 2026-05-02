@@ -20,6 +20,9 @@ import { toast } from "sonner";
 import { PluggyConnect } from "pluggy-connect-sdk";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatRelativeTime } from "@/lib/format";
+import { useSubscription } from "@/contexts/SubscriptionContext";
+import { Crown } from "lucide-react";
+import { StripeCheckoutDialog } from "@/components/StripeCheckoutDialog";
 import { DisconnectButton } from "@/components/contas/DisconnectButton";
 import {
   parsePluggyReturn,
@@ -53,6 +56,8 @@ export function buildPluggyRedirectUri(origin: string) {
 const Conexoes = () => {
   const device = useDeviceType();
   const { user } = useAuth();
+  const { isPlus, isFree } = useSubscription();
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [items, setItems] = useState<PluggyItemRow[] | null>(null);
   const [loadingList, setLoadingList] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
@@ -197,6 +202,13 @@ const Conexoes = () => {
       toast.error("Faça login para conectar uma conta.");
       return;
     }
+    // Plano Free: limite de 1 conexão. Usuários legados com >1 conexão
+    // mantêm as existentes (grandfather), mas não podem adicionar novas.
+    const currentCount = items?.length ?? 0;
+    if (isFree && currentCount >= 1) {
+      setUpgradeOpen(true);
+      return;
+    }
     setConnecting(true);
     try {
       const isMobile = device === "mobile";
@@ -233,7 +245,8 @@ const Conexoes = () => {
       const pluggyConnect = new PluggyConnect({
         connectToken: token,
         includeSandbox: false,
-        connectorTypes: ["PERSONAL_BANK", "BUSINESS_BANK"],
+        // Apenas contas pessoais (PF). PJ está fora do escopo do produto.
+        connectorTypes: ["PERSONAL_BANK"],
         ...(isMobile ? { connectorIds: openFinanceConnectorIds } : {}),
         language: "pt",
         ...(isMobile ? { forceOauthInBrowser: true } : {}),
