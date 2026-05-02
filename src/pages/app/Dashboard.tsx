@@ -546,7 +546,7 @@ interface KPIProps {
   label: string;
   subtitle?: string;
   value: number;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
   tone: "primary" | "success" | "destructive";
   trend?: string;
   trendPositive?: boolean;
