@@ -13,6 +13,7 @@ import {
   Target,
   Clock,
   LineChart as LineChartIcon,
+  type LucideIcon,
 } from "lucide-react";
 import {
   PieChart,
@@ -546,7 +547,7 @@ interface KPIProps {
   label: string;
   subtitle?: string;
   value: number;
-  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
+  icon: LucideIcon;
   tone: "primary" | "success" | "destructive";
   trend?: string;
   trendPositive?: boolean;
