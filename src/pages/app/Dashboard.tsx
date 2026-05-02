@@ -175,7 +175,7 @@ const Dashboard = () => {
       </div>
 
       {/* Histórico do Patrimônio (últimos 3 meses) */}
-      <Card className="bg-gradient-card border-border p-4 md:p-6">
+      <Card className="bg-card border-border shadow-none p-4 md:p-6">
         <div className="flex items-center justify-between mb-3 md:mb-4">
           <div className="flex items-center gap-2">
             <LineChartIcon className="h-4 w-4 text-primary" />
@@ -250,7 +250,7 @@ const Dashboard = () => {
       {/* Categorias + Orçamentos + Faturas */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Categorias */}
-        <Card className="bg-gradient-card border-border p-4 md:p-6 lg:col-span-1">
+        <Card className="bg-card border-border shadow-none p-4 md:p-6 lg:col-span-1">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <PieIcon className="h-4 w-4 text-primary" />
@@ -331,7 +331,7 @@ const Dashboard = () => {
         </Card>
 
         {/* Orçamentos */}
-        <Card className="bg-gradient-card border-border p-4 md:p-6 lg:col-span-1">
+        <Card className="bg-card border-border shadow-none p-4 md:p-6 lg:col-span-1">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Target className="h-4 w-4 text-primary" />
@@ -398,7 +398,7 @@ const Dashboard = () => {
         </Card>
 
         {/* Faturas */}
-        <Card className="bg-gradient-card border-border p-4 md:p-6 lg:col-span-1">
+        <Card className="bg-card border-border shadow-none p-4 md:p-6 lg:col-span-1">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Receipt className="h-4 w-4 text-primary" />
@@ -458,7 +458,7 @@ const Dashboard = () => {
       </div>
 
       {/* Movimentações recentes */}
-      <Card className="bg-gradient-card border-border p-4 md:p-6">
+      <Card className="bg-card border-border shadow-none p-4 md:p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="text-sm md:text-base font-semibold text-foreground">
