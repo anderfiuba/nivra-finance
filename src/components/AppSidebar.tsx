@@ -1,8 +1,6 @@
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { Logo } from "@/components/Logo";
 import { useAuth } from "@/contexts/AuthContext";
-import { useSubscription } from "@/contexts/SubscriptionContext";
-import { Badge } from "@/components/ui/badge";
 import { LayoutDashboard, Wallet, FileText, Plug, Settings, Crown, LogOut, Tags, CreditCard } from "lucide-react";
 import {
   Sidebar,
@@ -18,14 +16,14 @@ import {
 } from "@/components/ui/sidebar";
 
 const items = [
-  { title: "Dashboard", url: "/app", icon: LayoutDashboard, end: true, plus: false },
-  { title: "Contas", url: "/app/contas", icon: Wallet, plus: false },
-  { title: "Extrato Unificado", url: "/app/extrato", icon: FileText, plus: false },
-  { title: "Faturas", url: "/app/faturas", icon: CreditCard, plus: true },
-  { title: "Ciclo Financeiro", url: "/app/categorizacao", icon: Tags, plus: true },
-  { title: "Conexões Open Finance", url: "/app/conexoes", icon: Plug, plus: false },
-  { title: "Configurações", url: "/app/configuracoes", icon: Settings, plus: false },
-  { title: "Planos", url: "/app/planos", icon: Crown, plus: false },
+  { title: "Dashboard", url: "/app", icon: LayoutDashboard, end: true },
+  { title: "Contas", url: "/app/contas", icon: Wallet },
+  { title: "Extrato Unificado", url: "/app/extrato", icon: FileText },
+  { title: "Faturas", url: "/app/faturas", icon: CreditCard },
+  { title: "Ciclo Financeiro", url: "/app/categorizacao", icon: Tags },
+  { title: "Conexões Open Finance", url: "/app/conexoes", icon: Plug },
+  { title: "Configurações", url: "/app/configuracoes", icon: Settings },
+  { title: "Planos", url: "/app/planos", icon: Crown },
 ];
 
 export function AppSidebar() {
@@ -34,7 +32,6 @@ export function AppSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { displayName, user, signOut } = useAuth();
-  const { isPlus } = useSubscription();
 
   const handleSignOut = async () => {
     await signOut();
@@ -76,19 +73,7 @@ export function AppSidebar() {
                         }`}
                       >
                         <item.icon className={`h-4 w-4 shrink-0 ${active ? "text-primary" : ""}`} />
-                        {!collapsed && (
-                          <span className="text-sm flex-1 flex items-center gap-2">
-                            {item.title}
-                            {item.plus && !isPlus && (
-                              <Badge
-                                variant="outline"
-                                className="border-primary/40 text-primary bg-primary/10 text-[10px] px-1.5 py-0 h-4"
-                              >
-                                Plus
-                              </Badge>
-                            )}
-                          </span>
-                        )}
+                        {!collapsed && <span className="text-sm flex-1">{item.title}</span>}
                       </NavLink>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
