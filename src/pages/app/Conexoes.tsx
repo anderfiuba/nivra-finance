@@ -271,7 +271,7 @@ const Conexoes = () => {
     <div className="p-6 md:p-8 space-y-6 max-w-[1600px] mx-auto">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-foreground tracking-tight">
+          <h1 className="text-2xl md:text-3xl font-semibold text-foreground tracking-tight">
             Conexões Open Finance
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">

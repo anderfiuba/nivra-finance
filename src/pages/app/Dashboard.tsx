@@ -132,7 +132,7 @@ const Dashboard = () => {
   return (
     <div className="p-4 md:p-8 space-y-4 md:space-y-6 max-w-[1600px] mx-auto">
       <div>
-        <h1 className="text-xl md:text-3xl font-bold text-foreground tracking-tight">
+        <h1 className="text-xl md:text-3xl font-semibold text-foreground tracking-tight">
           Olá, {displayName}
         </h1>
         <p className="mt-1 text-xs md:text-sm text-muted-foreground">

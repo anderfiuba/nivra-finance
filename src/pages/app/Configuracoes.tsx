@@ -50,7 +50,7 @@ const Configuracoes = () => {
   return (
     <div className="p-6 md:p-8 space-y-6 max-w-4xl mx-auto">
       <div>
-        <h1 className="text-2xl md:text-3xl font-bold text-foreground tracking-tight">Configurações</h1>
+        <h1 className="text-2xl md:text-3xl font-semibold text-foreground tracking-tight">Configurações</h1>
         <p className="mt-1 text-sm text-muted-foreground">Gerencie sua conta, segurança e preferências.</p>
       </div>
 

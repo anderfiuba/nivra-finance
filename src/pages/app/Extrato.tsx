@@ -152,7 +152,7 @@ const Extrato = () => {
       {/* Cabeçalho */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="min-w-0">
-          <h1 className="text-xl md:text-3xl font-bold text-foreground tracking-tight">Extrato</h1>
+          <h1 className="text-xl md:text-3xl font-semibold text-foreground tracking-tight">Extrato</h1>
           <p className="mt-1 text-xs md:text-sm text-muted-foreground">
             Histórico de até 12 meses. Toque em uma transação para ver detalhes.
           </p>

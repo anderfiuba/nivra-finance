@@ -289,7 +289,7 @@ const Faturas = () => {
   if (creditAccounts.length === 0) {
     return (
       <div className="p-6 md:p-8 max-w-[1600px] mx-auto">
-        <h1 className="text-2xl md:text-3xl font-bold text-foreground tracking-tight">Faturas</h1>
+        <h1 className="text-2xl md:text-3xl font-semibold text-foreground tracking-tight">Faturas</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Detalhamento das faturas do seu cartão de crédito mês a mês.
         </p>
@@ -314,7 +314,7 @@ const Faturas = () => {
       <div>
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold text-foreground tracking-tight">Faturas</h1>
+            <h1 className="text-2xl md:text-3xl font-semibold text-foreground tracking-tight">Faturas</h1>
             <p className="mt-1 text-sm text-muted-foreground">
               Visão consolidada — fatura fechada, ciclo atual estimado e próximas faturas dos seus cartões.
             </p>

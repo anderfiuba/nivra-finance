@@ -93,7 +93,7 @@ const Contas = () => {
     <div className="p-4 sm:p-6 md:p-8 space-y-5 max-w-[1600px] mx-auto">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-foreground tracking-tight">Contas</h1>
+          <h1 className="text-2xl md:text-3xl font-semibold text-foreground tracking-tight">Contas</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Suas contas e cartões agrupados por tipo.
           </p>
