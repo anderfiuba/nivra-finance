@@ -1,7 +1,17 @@
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { Logo } from "@/components/Logo";
 import { useAuth } from "@/contexts/AuthContext";
-import { LayoutDashboard, Wallet, FileText, Plug, Settings, Crown, LogOut, Tags, CreditCard } from "lucide-react";
+import {
+  LayoutDashboard,
+  Wallet,
+  FileText,
+  Plug,
+  Settings,
+  Crown,
+  LogOut,
+  Tags,
+  CreditCard,
+} from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -49,7 +59,7 @@ export function AppSidebar() {
     end ? location.pathname === path : location.pathname.startsWith(path);
 
   return (
-    <Sidebar collapsible="icon" className="border-r border-sidebar-border">
+    <Sidebar collapsible="icon" className="border-r border-sidebar-border hidden md:flex">
       <SidebarHeader className="border-b border-sidebar-border p-4">
         <Logo showText={!collapsed} />
       </SidebarHeader>
@@ -68,12 +78,15 @@ export function AppSidebar() {
                         end={item.end}
                         className={`flex items-center gap-3 rounded-lg px-3 transition-smooth ${
                           active
-                            ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                            : "text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground"
+                            ? "bg-sidebar-accent text-sidebar-accent-foreground font-normal"
+                            : "text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground font-light"
                         }`}
                       >
-                        <item.icon className={`h-4 w-4 shrink-0 ${active ? "text-primary" : ""}`} />
-                        {!collapsed && <span className="text-sm flex-1">{item.title}</span>}
+                        <item.icon
+                          className={`h-[18px] w-[18px] shrink-0 ${active ? "text-primary" : ""}`}
+                          strokeWidth={1.5}
+                        />
+                        {!collapsed && <span className="text-sm flex-1 tracking-tight">{item.title}</span>}
                       </NavLink>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
