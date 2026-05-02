@@ -115,13 +115,16 @@ interface CategoryIconProps {
   className?: string;
   /** Tamanho em px. Default: 16 (h-4 w-4). */
   size?: number;
+  /** Espessura do traço Lucide. Default: 1.5 (estilo outline fino uniforme). */
+  strokeWidth?: number;
 }
 
 /**
  * Renderiza o ícone da categoria. Lida com Lucide e ícones customizados (img).
  * Use a className para ajustar cor (text-*) e dimensões com Tailwind.
+ * Por padrão usa stroke 1.5 — alinhado ao novo visual outline fino do app.
  */
-export function CategoryIcon({ label, className, size = 16 }: CategoryIconProps) {
+export function CategoryIcon({ label, className, size = 16, strokeWidth = 1.5 }: CategoryIconProps) {
   const def = getCategoryIcon(label);
   if (def.customSrc) {
     return (
@@ -138,5 +141,5 @@ export function CategoryIcon({ label, className, size = 16 }: CategoryIconProps)
     );
   }
   const Icon = def.icon ?? HelpCircle;
-  return <Icon className={className} size={size} aria-hidden="true" />;
+  return <Icon className={className} size={size} strokeWidth={strokeWidth} aria-hidden="true" />;
 }
