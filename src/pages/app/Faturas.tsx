@@ -20,6 +20,7 @@ import { ConfigCiclosCard } from "@/components/faturas/ConfigCiclosCard";
 import { CicloRow, type CicloStatus } from "@/components/faturas/CicloRow";
 import type { FinanceAccount, FinanceBill } from "@/contexts/FinanceContext";
 import type { Transaction } from "@/data/mockData";
+import { PlanGate } from "@/components/PlanGate";
 
 /**
  * Faturas — visão consolidada de todos os cartões, no formato do PDF de
@@ -469,4 +470,10 @@ function findBillForDue(
   });
 }
 
-export default Faturas;
+const FaturasGated = () => (
+  <PlanGate feature="faturas">
+    <Faturas />
+  </PlanGate>
+);
+
+export default FaturasGated;

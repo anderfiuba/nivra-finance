@@ -20,6 +20,9 @@ import { toast } from "sonner";
 import { PluggyConnect } from "pluggy-connect-sdk";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatRelativeTime } from "@/lib/format";
+import { useSubscription } from "@/contexts/SubscriptionContext";
+import { Crown } from "lucide-react";
+import { StripeCheckoutDialog } from "@/components/StripeCheckoutDialog";
 import { DisconnectButton } from "@/components/contas/DisconnectButton";
 import {
   parsePluggyReturn,
@@ -53,6 +56,8 @@ export function buildPluggyRedirectUri(origin: string) {
 const Conexoes = () => {
   const device = useDeviceType();
   const { user } = useAuth();
+  const { isPlus, isFree } = useSubscription();
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [items, setItems] = useState<PluggyItemRow[] | null>(null);
   const [loadingList, setLoadingList] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
@@ -197,6 +202,13 @@ const Conexoes = () => {
       toast.error("Faça login para conectar uma conta.");
       return;
     }
+    // Plano Free: limite de 1 conexão. Usuários legados com >1 conexão
+    // mantêm as existentes (grandfather), mas não podem adicionar novas.
+    const currentCount = items?.length ?? 0;
+    if (isFree && currentCount >= 1) {
+      setUpgradeOpen(true);
+      return;
+    }
     setConnecting(true);
     try {
       const isMobile = device === "mobile";
@@ -233,7 +245,8 @@ const Conexoes = () => {
       const pluggyConnect = new PluggyConnect({
         connectToken: token,
         includeSandbox: false,
-        connectorTypes: ["PERSONAL_BANK", "BUSINESS_BANK"],
+        // Apenas contas pessoais (PF). PJ está fora do escopo do produto.
+        connectorTypes: ["PERSONAL_BANK"],
         ...(isMobile ? { connectorIds: openFinanceConnectorIds } : {}),
         language: "pt",
         ...(isMobile ? { forceOauthInBrowser: true } : {}),
@@ -293,6 +306,30 @@ const Conexoes = () => {
           </Button>
         </div>
       </div>
+
+      {isFree && (items?.length ?? 0) >= 1 && (
+        <Card className="bg-primary/5 border-primary/30 p-4 flex items-start gap-3">
+          <div className="h-9 w-9 rounded-lg bg-primary/15 flex items-center justify-center shrink-0">
+            <Crown className="h-4 w-4 text-primary" />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-foreground">
+              Limite do plano Free atingido
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">
+              Conexões bancárias ilimitadas fazem parte do plano Plus. Faça upgrade para conectar
+              quantas contas quiser.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => setUpgradeOpen(true)}
+            className="bg-gradient-primary text-primary-foreground hover:opacity-90"
+          >
+            <Crown className="h-3.5 w-3.5 mr-1.5" /> Assinar Plus
+          </Button>
+        </Card>
+      )}
 
       <Card className="bg-primary/5 border-primary/30 p-4 flex items-start gap-3">
         <div className="h-9 w-9 rounded-lg bg-primary/15 flex items-center justify-center shrink-0">
@@ -449,6 +486,7 @@ const Conexoes = () => {
           })}
         </div>
       )}
+      <StripeCheckoutDialog open={upgradeOpen} onOpenChange={setUpgradeOpen} />
     </div>
   );
 };

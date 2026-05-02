@@ -22,6 +22,7 @@ import Privacidade from "./pages/legal/Privacidade.tsx";
 import Termos from "./pages/legal/Termos.tsx";
 import { FinanceProvider } from "./contexts/FinanceContext";
 import { AuthProvider } from "./contexts/AuthContext";
+import { SubscriptionProvider } from "./contexts/SubscriptionContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { ThemeProvider } from "./components/ThemeProvider";
 
@@ -47,9 +48,11 @@ const App = () => (
               path="/app"
               element={
                 <ProtectedRoute>
-                  <FinanceProvider>
-                    <AppLayout />
-                  </FinanceProvider>
+                  <SubscriptionProvider>
+                    <FinanceProvider>
+                      <AppLayout />
+                    </FinanceProvider>
+                  </SubscriptionProvider>
                 </ProtectedRoute>
               }
             >

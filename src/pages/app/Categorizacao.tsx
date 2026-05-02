@@ -38,6 +38,7 @@ import { CycleDaySettingsButton } from "@/components/CycleDaySettingsButton";
 import { DEFAULT_PARENT_CATEGORIES } from "@/lib/defaultCategories";
 import { TotalBudgetCard } from "@/components/disponivel/TotalBudgetCard";
 import { CycleStatsWidgets } from "@/components/disponivel/CycleStatsWidgets";
+import { PlanGate } from "@/components/PlanGate";
 import { CategoryIcon } from "@/lib/categoryIcons";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { toast } from "sonner";
@@ -782,4 +783,10 @@ function pickHue(idx: number, total: number): string {
   return `hsl(${hue} 70% 55%)`;
 }
 
-export default Categorizacao;
+const CategorizacaoGated = () => (
+  <PlanGate feature="categorizacao">
+    <Categorizacao />
+  </PlanGate>
+);
+
+export default CategorizacaoGated;

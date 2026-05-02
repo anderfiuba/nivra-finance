@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { ConsentGate } from "@/components/ConsentGate";
+import { PaymentTestModeBanner } from "@/components/PaymentTestModeBanner";
 
 export default function AppLayout() {
   const { user } = useAuth();
@@ -15,6 +16,7 @@ export default function AppLayout() {
       <div className="min-h-screen flex w-full bg-background">
         <AppSidebar />
         <div className="flex-1 flex flex-col min-w-0">
+          <PaymentTestModeBanner />
           <header className="h-16 flex items-center gap-4 border-b border-border bg-background/80 backdrop-blur px-4 sticky top-0 z-30">
             <SidebarTrigger className="text-muted-foreground hover:text-foreground" />
             <div className="flex-1 max-w-md">
