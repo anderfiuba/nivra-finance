@@ -27,6 +27,8 @@ import {
   consumeConnectionFlag,
 } from "@/lib/pluggyReturnFlow";
 import { hasPluggySyncData, PLUGGY_SYNC_RETRY_DELAYS_MS } from "@/lib/pluggySyncRetry";
+import { useSubscription } from "@/hooks/useSubscription";
+import { Link } from "react-router-dom";
 
 // Linha de pluggy_items no Cloud + status atualizado.
 interface PluggyItemRow {
@@ -53,6 +55,7 @@ export function buildPluggyRedirectUri(origin: string) {
 const Conexoes = () => {
   const device = useDeviceType();
   const { user } = useAuth();
+  const { isPlus } = useSubscription();
   const [items, setItems] = useState<PluggyItemRow[] | null>(null);
   const [loadingList, setLoadingList] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
@@ -195,6 +198,12 @@ const Conexoes = () => {
   const startConnection = async () => {
     if (!user) {
       toast.error("Faça login para conectar uma conta.");
+      return;
+    }
+    if (!isPlus && (items?.length ?? 0) >= 1) {
+      toast.error("Limite do plano Free atingido", {
+        description: "Conexões bancárias ilimitadas fazem parte do plano Plus.",
+      });
       return;
     }
     setConnecting(true);
@@ -381,6 +390,16 @@ const Conexoes = () => {
 
       {items && items.length > 0 && (
         <div className="space-y-3">
+          {!isPlus && items.length >= 1 && (
+            <Card className="p-4 bg-primary/5 border-primary/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="text-sm text-foreground">
+                <strong>Plano Free:</strong> 1 conexão bancária. Para conectar mais bancos, faça upgrade para o Plus.
+              </div>
+              <Button asChild size="sm" className="bg-gradient-primary text-primary-foreground hover:opacity-90">
+                <Link to="/app/planos">Fazer upgrade</Link>
+              </Button>
+            </Card>
+          )}
           {items.map((it) => {
             const isOk = STATUS_OK.has(it.status);
             const isReauth = STATUS_REAUTH.has(it.status);
