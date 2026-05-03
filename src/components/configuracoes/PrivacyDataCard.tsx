@@ -95,7 +95,7 @@ export function PrivacyDataCard() {
   };
 
   return (
-    <Card className="bg-card shadow-none border-border p-6">
+    <Card className="bg-gradient-card border-border p-6">
       <div className="flex items-center gap-3">
         <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
           <ShieldAlert className="h-4 w-4 text-primary" />

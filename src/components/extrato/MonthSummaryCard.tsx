@@ -18,7 +18,7 @@ export function MonthSummaryCard({ count, entradas, saidas }: MonthSummaryCardPr
   const resultadoPositivo = resultado >= 0;
 
   return (
-    <Card className="bg-card shadow-none border-border p-3 md:p-4 overflow-hidden">
+    <Card className="bg-gradient-card border-border p-3 md:p-4 overflow-hidden">
       {/* Mobile: grid 2x2 para evitar overflow com valores grandes */}
       <div className="grid grid-cols-2 gap-x-3 gap-y-2 md:hidden">
         <MobileItem

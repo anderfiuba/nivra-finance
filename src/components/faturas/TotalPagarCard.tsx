@@ -15,7 +15,7 @@ interface Props {
  */
 export const TotalPagarCard = ({ total, installments, oneOff, message }: Props) => {
   return (
-    <Card className="bg-card shadow-none border-border p-6 md:p-8">
+    <Card className="bg-gradient-card border-border p-6 md:p-8">
       <p className="text-4xl md:text-5xl font-light text-foreground tabular-nums tracking-tight">
         {formatBRL(total)}
       </p>

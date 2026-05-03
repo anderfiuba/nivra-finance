@@ -49,7 +49,7 @@ export function CycleSpendingDonut({ total, limit, slices }: Props) {
 
   if (top.length === 0) {
     return (
-      <Card className="bg-card shadow-none border-border p-4 sm:p-5">
+      <Card className="bg-gradient-card border-border p-4 sm:p-5">
         <h3 className="text-sm font-semibold text-foreground mb-1">Visão geral dos gastos</h3>
         <p className="text-xs text-muted-foreground">Sem gastos categorizados neste ciclo ainda.</p>
       </Card>
@@ -57,7 +57,7 @@ export function CycleSpendingDonut({ total, limit, slices }: Props) {
   }
 
   return (
-    <Card className="bg-card shadow-none border-border p-4 sm:p-5">
+    <Card className="bg-gradient-card border-border p-4 sm:p-5">
       <div className="flex items-center gap-1.5 mb-3">
         <h3 className="text-sm font-semibold text-foreground">Visão geral dos gastos</h3>
         <TooltipProvider delayDuration={150}>

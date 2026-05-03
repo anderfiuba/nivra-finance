@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
+import { Calendar as CalendarIcon, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { FilterChip } from "@/components/ui/filter-chip";
 import { cn } from "@/lib/utils";
 import { type MonthBucket, monthBucketFromKey } from "@/lib/months";
 import type { DateRange } from "react-day-picker";
@@ -89,13 +89,23 @@ export function PeriodFilter({ months, value, onChange }: PeriodFilterProps) {
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
-        <FilterChip
-          label="Período"
-          active={value.mode !== "month" || !!value.monthKey}
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-9 gap-2 px-3 bg-input border-border w-full sm:w-auto sm:max-w-sm justify-start"
           aria-label="Filtrar período"
         >
-          {summary}
-        </FilterChip>
+          <CalendarIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+          <span className="flex flex-col items-start leading-tight min-w-0 flex-1">
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground hidden sm:block">
+              {MODE_LABEL[value.mode]}
+            </span>
+            <span className="text-sm font-medium truncate w-full text-left">
+              {summary}
+            </span>
+          </span>
+          <ChevronDown className="h-4 w-4 opacity-60 shrink-0" />
+        </Button>
       </PopoverTrigger>
       <PopoverContent
         align="start"

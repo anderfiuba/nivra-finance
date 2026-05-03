@@ -128,7 +128,7 @@ export function TotalBudgetCard({ spent }: Props) {
     <>
       <Card
         className={cn(
-          "bg-card shadow-none border-border p-4 md:p-5 space-y-3",
+          "bg-gradient-card border-border p-4 md:p-5 space-y-3",
           overBy > 0 && "border-warning/50",
         )}
       >

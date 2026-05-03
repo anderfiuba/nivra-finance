@@ -93,7 +93,7 @@ const Contas = () => {
     <div className="p-4 sm:p-6 md:p-8 space-y-5 max-w-[1600px] mx-auto">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl md:text-3xl font-semibold text-foreground tracking-tight">Contas</h1>
+          <h1 className="text-2xl md:text-3xl font-bold text-foreground tracking-tight">Contas</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Suas contas e cartões agrupados por tipo.
           </p>
@@ -109,12 +109,12 @@ const Contas = () => {
       </div>
 
       {isLoading && !hasAnything ? (
-        <Card className="bg-card shadow-none border-border p-10 flex items-center justify-center">
+        <Card className="bg-gradient-card border-border p-10 flex items-center justify-center">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground mr-2" />
           <span className="text-sm text-muted-foreground">Carregando contas…</span>
         </Card>
       ) : !hasAnything ? (
-        <Card className="bg-card shadow-none border-border p-10 flex flex-col items-center text-center">
+        <Card className="bg-gradient-card border-border p-10 flex flex-col items-center text-center">
           <div className="h-14 w-14 rounded-full bg-secondary/60 flex items-center justify-center mb-4">
             <Wallet className="h-6 w-6 text-muted-foreground" />
           </div>
