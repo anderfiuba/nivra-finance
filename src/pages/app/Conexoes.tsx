@@ -390,6 +390,16 @@ const Conexoes = () => {
 
       {items && items.length > 0 && (
         <div className="space-y-3">
+          {!isPlus && items.length >= 1 && (
+            <Card className="p-4 bg-primary/5 border-primary/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="text-sm text-foreground">
+                <strong>Plano Free:</strong> 1 conexão bancária. Para conectar mais bancos, faça upgrade para o Plus.
+              </div>
+              <Button asChild size="sm" className="bg-gradient-primary text-primary-foreground hover:opacity-90">
+                <Link to="/app/planos">Fazer upgrade</Link>
+              </Button>
+            </Card>
+          )}
           {items.map((it) => {
             const isOk = STATUS_OK.has(it.status);
             const isReauth = STATUS_REAUTH.has(it.status);
