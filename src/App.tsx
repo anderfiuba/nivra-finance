@@ -20,6 +20,9 @@ import Categorizacao from "./pages/app/Categorizacao.tsx";
 import Faturas from "./pages/app/Faturas.tsx";
 import Privacidade from "./pages/legal/Privacidade.tsx";
 import Termos from "./pages/legal/Termos.tsx";
+import CheckoutReturn from "./pages/CheckoutReturn.tsx";
+import { PaymentTestModeBanner } from "./components/PaymentTestModeBanner";
+import { PlanGate } from "./components/PlanGate";
 import { FinanceProvider } from "./contexts/FinanceContext";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
@@ -35,6 +38,7 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
         <AuthProvider>
+          <PaymentTestModeBanner />
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/login" element={<Login />} />
@@ -43,6 +47,7 @@ const App = () => (
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/privacidade" element={<Privacidade />} />
             <Route path="/termos" element={<Termos />} />
+            <Route path="/checkout/return" element={<CheckoutReturn />} />
             <Route
               path="/app"
               element={
@@ -56,8 +61,8 @@ const App = () => (
               <Route index element={<Dashboard />} />
               <Route path="contas" element={<Contas />} />
               <Route path="extrato" element={<Extrato />} />
-              <Route path="categorizacao" element={<Categorizacao />} />
-              <Route path="faturas" element={<Faturas />} />
+              <Route path="categorizacao" element={<PlanGate feature="categorizacao"><Categorizacao /></PlanGate>} />
+              <Route path="faturas" element={<PlanGate feature="faturas"><Faturas /></PlanGate>} />
               <Route path="conexoes" element={<Conexoes />} />
               <Route path="configuracoes" element={<Configuracoes />} />
               <Route path="planos" element={<Planos />} />
